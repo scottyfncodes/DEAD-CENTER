@@ -10,21 +10,6 @@ Pull back from anywhere on the screen and let go. Pull length is power; the bras
 
 Keyboard: arrows aim (Shift for fine steps), Space launches, R resets, G toggles the previous-shot trace, M sound, C the Collection.
 
-## Downhill (prototype)
-
-`/downhill/` is a separate, playable prototype of a possible evolution: a third-person, hands-off downhill longboard run. **You choose the line. Gravity tells the story.** Drag left or right to set where the rider starts, press **Launch**, and watch. There is no steering after launch.
-
-It is isolated from the puzzles: its own page (`downhill/index.html`) and code (`src/downhill/`), sharing only Three.js, the design tokens and the Pulse helper. The puzzle game at `/` is unchanged.
-
-- `course.ts`: one handcrafted hill (Gravity Hill) as data plus a height function: three lanes, the Table (long ramp) over a gap, the Kicker (short steep ramp) over a boulder row, a banked turf wall, a tyre wall, pines, rocks and the finish gate.
-- `sim.ts`: deterministic 240 Hz rider physics, computed in full at launch. The board rolls along its heading and side-slope gravity turns it (a carve) instead of sliding it, so it doesn't behave like a marble; lips launch it, landings are absorbed or crash.
-- `rider.ts`, `world.ts`, `main.ts`: the procedurally posed rider, the diorama on a walnut plinth, the course preview, the chase camera, the crash tumble and the UI.
-
-```sh
-npx tsx tools/downhill-sweep.ts 0.1   # what happens from every start line
-node e2e/downhill.mjs http://localhost:4173
-```
-
 ## Develop
 
 ```sh
