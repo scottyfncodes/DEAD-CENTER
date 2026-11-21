@@ -55,6 +55,8 @@ body {
 button {
   font: inherit;
   color: inherit;
+  /* Page zoom is allowed for accessibility; taps on controls still respond at once. */
+  touch-action: manipulation;
 }
 
 .app {
@@ -197,7 +199,7 @@ button {
 
 .label__meta {
   margin: 0;
-  font-size: 11px;
+  font-size: 12px;
   letter-spacing: 0.14em;
   text-transform: uppercase;
   color: var(--ink-2);
@@ -421,7 +423,7 @@ button {
 
 .result__meta {
   margin: 4px 0 0;
-  font-size: 11px;
+  font-size: 12px;
   letter-spacing: 0.12em;
   text-transform: uppercase;
   color: var(--ink-2);
@@ -508,7 +510,7 @@ button {
 
 .collection__kicker {
   margin: 0;
-  font-size: 11px;
+  font-size: 12px;
   letter-spacing: 0.22em;
   color: var(--ink-2);
 }
@@ -566,7 +568,7 @@ button {
   padding: 3px 7px 2px;
   border: 1px solid var(--brass);
   border-radius: 999px;
-  font-size: 10px;
+  font-size: 12px;
   letter-spacing: 0.14em;
   text-transform: uppercase;
   color: var(--brass-ink);
@@ -574,7 +576,7 @@ button {
 
 .set__count {
   margin-left: auto;
-  font-size: 11px;
+  font-size: 12px;
   letter-spacing: 0.1em;
   text-transform: uppercase;
   color: var(--ink-2);
@@ -631,7 +633,7 @@ button {
 
 .piece__no {
   margin-top: 10px;
-  font-size: 10.5px;
+  font-size: 12px;
   letter-spacing: 0.14em;
   color: var(--ink-2);
 }
@@ -646,7 +648,7 @@ button {
 
 .piece__status {
   margin-top: 6px;
-  font-size: 11px;
+  font-size: 12px;
   letter-spacing: 0.04em;
   color: var(--ink-2);
   display: flex;
@@ -691,7 +693,7 @@ button {
   display: inline-flex;
   align-items: center;
   min-height: 44px;
-  font-size: 11px;
+  font-size: 12px;
   letter-spacing: 0.12em;
   text-transform: uppercase;
   color: var(--ink-2);
