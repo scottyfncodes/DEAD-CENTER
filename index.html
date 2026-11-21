@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
+    <title>DEAD CENTER</title>
+    <meta name="description" content="A collection of impossible little shots. One ball. One shot. One target. A precision puzzle game from HaveAnApp." />
+    <meta name="theme-color" content="#EAE3D5" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-title" content="Dead Center" />
+    <meta property="og:title" content="DEAD CENTER" />
+    <meta property="og:description" content="A collection of impossible little shots. One ball. One shot. One target." />
+    <meta property="og:type" content="website" />
+    <meta property="og:image" content="/og.jpg" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <link rel="icon" href="/icon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <!-- HaveAnApp Pulse: anonymous, cookieless usage counts. -->
+    <script defer src="https://haveanapp-pulse-collect.vercel.app/p.js" data-app="dead-center" data-returning="on"></script>
+    <script>window.pulse=window.pulse||function(){(pulse.q=pulse.q||[]).push(arguments)}</script>
+  </head>
+  <body>
+    <div id="app" class="app" data-state="loading">
+      <canvas id="stage" class="stage" aria-label="The board. Pull back from anywhere and let go to shoot." role="img"></canvas>
+
+      <header class="top">
+        <div class="wordmark" aria-label="Dead Center">
+          <span class="wordmark__dot" aria-hidden="true"></span>
+          <span>DEAD CENTER</span>
+        </div>
+        <nav class="tools" aria-label="Game controls">
+          <button class="icon-btn" id="btn-ghost" type="button" aria-pressed="true" aria-label="Show the previous shot" title="Previous shot (G)">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="18" r="1.1"/><circle cx="8" cy="13.6" r="1.1"/><circle cx="11.6" cy="10" r="1.1"/><circle cx="15.6" cy="7.4" r="1.1"/><circle cx="19" cy="6" r="2.6" class="o"/></svg>
+          </button>
+          <button class="icon-btn" id="btn-sound" type="button" aria-pressed="true" aria-label="Sound" title="Sound (M)">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path class="o" d="M4 9.5h3.2L12 5.5v13l-4.8-4H4z"/><path class="on o" d="M15.5 9a4.2 4.2 0 0 1 0 6M18 6.6a7.6 7.6 0 0 1 0 10.8"/><path class="off o" d="M16 9.5l5 5M21 9.5l-5 5"/></svg>
+          </button>
+          <button class="icon-btn" id="btn-collection" type="button" aria-label="The Collection" title="The Collection (C)">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><rect class="o" x="4" y="4" width="6.5" height="6.5" rx="1.4"/><rect class="o" x="13.5" y="4" width="6.5" height="6.5" rx="1.4"/><rect class="o" x="4" y="13.5" width="6.5" height="6.5" rx="1.4"/><rect class="o" x="13.5" y="13.5" width="6.5" height="6.5" rx="1.4"/><circle cx="16.75" cy="16.75" r="1.3"/></svg>
+          </button>
+        </nav>
+      </header>
+
+      <section class="label" aria-live="polite">
+        <p class="label__meta"><span id="piece-no">No. 01</span><span class="sep" aria-hidden="true">·</span><span id="piece-collection">The Basics</span></p>
+        <h1 class="label__name" id="piece-name">The Straightaway</h1>
+        <p class="hint" id="hint" hidden>Pull back from anywhere, then let go.</p>
+      </section>
+
+      <div class="arena" id="arena" aria-hidden="true"></div>
+
+      <footer class="bottom">
+        <p class="attempts" id="attempts" aria-live="polite">Attempt 1</p>
+        <p class="voice" id="voice" aria-live="polite"></p>
+        <button class="text-btn" id="btn-retry" type="button" title="Reset the ball (R)">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path class="o" d="M5.5 12a6.5 6.5 0 1 0 2-4.7"/><path d="M4.2 4.6v4.6h4.6z"/></svg>
+          <span>Reset</span>
+        </button>
+      </footer>
+
+      <section class="result" id="result" hidden aria-labelledby="result-line" role="dialog">
+        <div class="result__seal" aria-hidden="true">
+          <svg viewBox="0 0 64 64"><circle class="ring" cx="32" cy="32" r="28"/><circle class="ring2" cx="32" cy="32" r="23"/></svg>
+          <span id="result-count">1</span>
+        </div>
+        <div class="result__text">
+          <p class="result__line" id="result-line">There it is.</p>
+          <p class="result__meta" id="result-meta">No. 01 · The Straightaway</p>
+          <p class="result__detail" id="result-detail">Sunk on the first attempt</p>
+        </div>
+        <div class="result__actions">
+          <button class="btn btn--quiet" id="btn-again" type="button">Again</button>
+          <button class="btn" id="btn-next" type="button">Next piece <span aria-hidden="true">→</span></button>
+        </div>
+      </section>
+
+      <section class="collection" id="collection" hidden aria-labelledby="collection-title" role="dialog">
+        <div class="collection__inner">
+          <header class="collection__head">
+            <div>
+              <p class="collection__kicker">DEAD CENTER</p>
+              <h2 id="collection-title">The Collection</h2>
+              <p class="collection__progress" id="collection-progress">0 of 12 solved</p>
+            </div>
+            <button class="icon-btn" id="btn-close" type="button" aria-label="Back to the board" title="Back (Esc)">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path class="o" d="M6 6l12 12M18 6L6 18"/></svg>
+            </button>
+          </header>
+          <div id="collection-list"></div>
+          <footer class="collection__foot">
+            <p class="tagline">A collection of impossible little shots.</p>
+            <a class="credit" href="https://haveanapp.com/?utm_source=dead-center&amp;utm_medium=game&amp;utm_campaign=credit" target="_blank" rel="noopener">Made by HaveAnApp</a>
+          </footer>
+        </div>
+      </section>
+
+      <noscript><p class="noscript">DEAD CENTER needs JavaScript and WebGL.</p></noscript>
+      <p class="fallback" id="fallback" hidden>This device could not start the 3D board. DEAD CENTER needs WebGL, which may be turned off in this browser.</p>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
