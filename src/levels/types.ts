@@ -5,7 +5,7 @@
  * Angles are degrees, 0 = +x, 90 = straight up the board.
  */
 
-export type CollectionId = 'basics' | 'angles' | 'pins' | 'fine'
+export type CollectionId = 'basics' | 'angles' | 'pins' | 'fine' | 'edges' | 'turned' | 'brass' | 'long' | 'quarters' | 'master'
 
 export interface Vec2 {
   x: number

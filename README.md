@@ -2,7 +2,7 @@
 
 **A collection of impossible little shots.** One ball. One shot. One target.
 
-A browser precision puzzle from [HaveAnApp](https://haveanapp.com). Twelve handcrafted miniature tabletop arenas in walnut, ivory ceramic and brass. Pull back, let go, and watch: once the steel ball leaves, you can't touch it. It drops into the pocket or it doesn't.
+A browser precision puzzle from [HaveAnApp](https://haveanapp.com). Thirty handcrafted miniature tabletop arenas, in ten collections of three, in walnut, ivory ceramic and brass. Pull back, let go, and watch: once the steel ball leaves, you can't touch it. It drops into the pocket or it doesn't.
 
 ## Play
 
