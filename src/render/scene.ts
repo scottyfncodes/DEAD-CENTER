@@ -78,6 +78,11 @@ function powerArcMaterial(): THREE.ShaderMaterial {
   })
 }
 
+/** True when an opening on a near/far side reaches the corner at x. */
+function gapAt(level: LevelDef, side: 'near' | 'far', x: number): boolean {
+  return (level.openings ?? []).some((o) => o.side === side && o.from <= x + RAIL_T && o.to >= x - RAIL_T)
+}
+
 export class WorkshopRenderer {
   readonly renderer: THREE.WebGLRenderer
   readonly scene = new THREE.Scene()
@@ -269,8 +274,17 @@ export class WorkshopRenderer {
 
     // Walnut rails around the edge (with gaps where the level opens).
     for (const r of buildRails(level)) {
-      const geo = new RoundedBoxGeometry(r.hx * 2, RAIL_TOP + SLAB_D, r.hy * 2, 3, 0.16)
-      geo.translate(r.cx, (RAIL_TOP - SLAB_D) / 2, -r.cy)
+      // Side rails run on into the corner pieces they meet, so their rounded ends never show as a notch
+      // in the outline or its shadow (the physics keeps the exact pieces).
+      let { cy, hy } = r
+      if (r.side === 'left' || r.side === 'right') {
+        const lo = r.cy - r.hy < 1e-6 && !gapAt(level, 'near', r.side === 'left' ? 0 : w) ? 0.3 : 0
+        const hi = r.cy + r.hy > h - 1e-6 && !gapAt(level, 'far', r.side === 'left' ? 0 : w) ? 0.3 : 0
+        cy += (hi - lo) / 2
+        hy += (hi + lo) / 2
+      }
+      const geo = new RoundedBoxGeometry(r.hx * 2, RAIL_TOP + SLAB_D, hy * 2, 3, 0.16)
+      geo.translate(r.cx, (RAIL_TOP - SLAB_D) / 2, -cy)
       planarUV(geo, r.side === 'near' || r.side === 'far' ? 'x' : 'z')
       const m = new THREE.Mesh(geo, this.mats.rail)
       m.castShadow = m.receiveShadow = true
@@ -365,21 +379,34 @@ export class WorkshopRenderer {
   }
 
   private makePlaque(level: LevelDef, w: number): THREE.Mesh {
+    // Drawn at 4x the plate's on-screen size so the engraving stays crisp on a phone.
     const c = document.createElement('canvas')
-    c.width = 256
-    c.height = 64
+    c.width = 512
+    c.height = 128
     const g = c.getContext('2d')!
-    g.fillStyle = '#c29d5f'
-    g.fillRect(0, 0, 256, 64)
-    g.fillStyle = 'rgba(48,38,24,0.85)'
-    g.font = '500 40px "IBM Plex Mono", ui-monospace, monospace'
+    const fill = g.createLinearGradient(0, 0, 0, 128)
+    fill.addColorStop(0, '#d9b878')
+    fill.addColorStop(1, '#b38a4c')
+    g.fillStyle = fill
+    g.fillRect(0, 0, 512, 128)
+    // A fine inset border, like a stamped plate.
+    g.strokeStyle = 'rgba(70,50,24,0.55)'
+    g.lineWidth = 4
+    g.strokeRect(12, 12, 488, 104)
+    const label = `No. ${String(level.number).padStart(2, '0')}`
+    g.font = '500 74px "IBM Plex Mono", ui-monospace, monospace'
     g.textAlign = 'center'
     g.textBaseline = 'middle'
-    g.fillText(`No. ${String(level.number).padStart(2, '0')}`, 128, 34)
+    // Engraved: a light lip below the cut, then the dark cut itself.
+    g.fillStyle = 'rgba(255,236,196,0.55)'
+    g.fillText(label, 256, 69)
+    g.fillStyle = '#2b1f10'
+    g.fillText(label, 256, 66)
     const tex = new THREE.CanvasTexture(c)
     tex.colorSpace = THREE.SRGBColorSpace
-    tex.anisotropy = 4
-    const mat = new THREE.MeshStandardMaterial({ map: tex, metalness: 0.85, roughness: 0.4, envMapIntensity: 1 })
+    tex.anisotropy = 8
+    // Less mirror-like than the posts, so the engraving reads at any angle.
+    const mat = new THREE.MeshStandardMaterial({ map: tex, metalness: 0.55, roughness: 0.5, envMapIntensity: 0.8 })
     const geo = new THREE.PlaneGeometry(2.3, 0.56)
     const m = new THREE.Mesh(geo, mat)
     // On the front face of the near rail, centred.

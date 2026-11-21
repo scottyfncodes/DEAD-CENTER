@@ -10,6 +10,12 @@ export function onStart(isFirstEver: boolean): string | null {
   return isFirstEver ? 'Give it a go.' : null
 }
 
+/** For a returning player who finished the original twelve before the Collection grew. */
+export function onNewPieces(count: number): string {
+  const words = ['', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine', 'Ten', 'Eleven', 'Twelve', 'Thirteen', 'Fourteen', 'Fifteen', 'Sixteen', 'Seventeen', 'Eighteen']
+  return `${words[count] ?? count} new pieces.`
+}
+
 export function onMiss(result: ShotResult, attempt: number, power: number): string | null {
   if (result.closest < POCKET_R + 0.55) return 'Nearly.'
   if (result.outcome === 'fell' && power > 0.85) return 'A bit ambitious.'

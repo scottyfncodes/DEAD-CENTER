@@ -17,6 +17,8 @@ const CUP_DROP = 1.12
 const RESET_OUT = 0.14
 const RESET_IN = 0.2
 const SETTLE_WAIT = 1.15
+/** The Collection first shipped with twelve pieces; later ones are "new" to anyone who played before. */
+const ORIGINAL_PIECES = 12
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T
 
@@ -87,12 +89,15 @@ export class Game {
   start(requested?: string | null) {
     const byId = (id: string | null | undefined) => LEVELS.find((l) => l.id === id)
     const first = Object.keys(this.data.pieces).length === 0
-    const pick = byId(requested) ?? byId(this.data.lastPiece) ?? LEVELS.find((l) => !save.isSolved(this.data, l.id)) ?? LEVELS[0]
+    // A player who solved every piece they had, before the Collection grew, starts on the first new one.
+    const fresh = this.newPieces()
+    const caughtUp = !first && fresh.length > 0 && LEVELS.slice(0, ORIGINAL_PIECES).every((l) => save.isSolved(this.data, l.id))
+    const pick = byId(requested) ?? (caughtUp ? fresh[0] : null) ?? byId(this.data.lastPiece) ?? LEVELS.find((l) => !save.isSolved(this.data, l.id)) ?? LEVELS[0]
     this.load(pick)
     if (first) {
       this.say(voice.onStart(true), 3)
       this.els.hint.hidden = false
-    }
+    } else if (caughtUp && pick === fresh[0]) this.say(voice.onNewPieces(fresh.length), 3.6)
     this.els.app.dataset.state = 'ready'
   }
 
@@ -498,15 +503,25 @@ export class Game {
     this.r.setGhostVisible(ghost)
   }
 
+  /** Pieces added after the first release that this player has never launched on. */
+  private newPieces(): LevelDef[] {
+    return LEVELS.slice(ORIGINAL_PIECES).filter((l) => !(this.data.pieces[l.id]?.launches))
+  }
+
   private openCollection() {
     if (this.phase === 'aiming') this.cancelAim()
     const solved = LEVELS.filter((l) => save.isSolved(this.data, l.id)).length
     this.els.collectionProgress.textContent = solved === LEVELS.length ? 'Every piece solved' : `${solved} of ${LEVELS.length} solved`
     const html: string[] = []
+    const fresh = this.newPieces()
+    const veteran = LEVELS.slice(0, ORIGINAL_PIECES).some((l) => save.isSolved(this.data, l.id))
     for (const col of COLLECTIONS) {
       const pieces = LEVELS.filter((l) => l.collection === col.id)
       const done = pieces.filter((l) => save.isSolved(this.data, l.id)).length
-      html.push(`<section class="set" aria-labelledby="set-${col.id}"><div class="set__head"><span class="set__numeral" aria-hidden="true">${col.numeral}</span><h3 class="set__title" id="set-${col.id}">${col.title}</h3><span class="set__count">${done}/${pieces.length}</span></div><div class="set__grid">`)
+      // Marked new only for players who were here before it: untouched, added later, and they have played the original set.
+      const isNew = veteran && pieces.every((l) => fresh.includes(l))
+      const tag = isNew ? '<span class="set__new">New</span>' : ''
+      html.push(`<section class="set" aria-labelledby="set-${col.id}"><div class="set__head"><span class="set__numeral" aria-hidden="true">${col.numeral}</span><h3 class="set__title" id="set-${col.id}">${col.title}</h3>${tag}<span class="set__count">${done}/${pieces.length}</span></div><div class="set__grid">`)
       for (const l of pieces) {
         const p = this.data.pieces[l.id]
         const solvedP = p?.firstAttempts != null
