@@ -21,6 +21,10 @@ export interface PieceRecord {
   launches: number
   /** Attempts in the run in progress (survives a reload, so leaving never resets the count). */
   runAttempts: number
+  /** Mastery: sunk on the first attempt of a run, at least once. */
+  aced: boolean
+  /** Mastery: sunk dead centre (its last line over the rim within DEAD_CENTER_OFFSET of the middle), at least once. */
+  deadCenter: boolean
 }
 
 export interface DailyRecord {
@@ -30,6 +34,8 @@ export interface DailyRecord {
   firstAttempts: number | null
   completedOn: string | null
   practiceBest: number | null
+  /** Sunk dead centre on this day's board. */
+  deadCenter?: boolean
 }
 
 export interface SaveData {
@@ -38,16 +44,18 @@ export interface SaveData {
   settings: { sound: boolean; ghost: boolean }
   /** Last piece played, to reopen on return. */
   lastPiece: string | null
-  /** The Workbench (daily) records, keyed by date. Reserved for the daily mode. */
+  /** The Workbench (daily) records, keyed by date. */
   daily: Record<string, DailyRecord>
+  /** How many Collection pieces this player's game last knew, to greet new ones once. Null before it was recorded. */
+  known: number | null
 }
 
 export function emptySave(): SaveData {
-  return { version: SAVE_VERSION, pieces: {}, settings: { sound: true, ghost: true }, lastPiece: null, daily: {} }
+  return { version: SAVE_VERSION, pieces: {}, settings: { sound: true, ghost: true }, lastPiece: null, daily: {}, known: null }
 }
 
 export function emptyPiece(): PieceRecord {
-  return { firstAttempts: null, firstCompletedOn: null, bestAttempts: null, completions: 0, launches: 0, runAttempts: 0 }
+  return { firstAttempts: null, firstCompletedOn: null, bestAttempts: null, completions: 0, launches: 0, runAttempts: 0, aced: false, deadCenter: false }
 }
 
 const num = (v: unknown, fallback: number | null): number | null => (typeof v === 'number' && Number.isFinite(v) && v >= 0 ? Math.floor(v) : fallback)
@@ -69,13 +77,30 @@ export function migrate(raw: unknown): SaveData {
       completions: num(p.completions, 0) ?? 0,
       launches: num(p.launches, 0) ?? 0,
       runAttempts: num(p.runAttempts, 0) ?? 0,
+      // Saves from before mastery marks: a first-attempt solve already earned the ace.
+      aced: p.aced === true || first === 1 || num(p.bestAttempts, null) === 1,
+      deadCenter: p.deadCenter === true,
     }
   }
   const s = r.settings && typeof r.settings === 'object' ? (r.settings as Record<string, unknown>) : {}
   out.settings.sound = s.sound !== false
   out.settings.ghost = s.ghost !== false
   out.lastPiece = typeof r.lastPiece === 'string' ? r.lastPiece : null
-  if (r.daily && typeof r.daily === 'object') out.daily = r.daily as Record<string, DailyRecord>
+  if (r.daily && typeof r.daily === 'object') {
+    for (const [date, d] of Object.entries(r.daily as Record<string, Record<string, unknown>>)) {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !d || typeof d !== 'object' || typeof d.pieceId !== 'string') continue
+      out.daily[date] = {
+        pieceId: d.pieceId,
+        attempts: num(d.attempts, 0) ?? 0,
+        solved: d.solved === true,
+        firstAttempts: num(d.firstAttempts, null) || null,
+        completedOn: typeof d.completedOn === 'string' ? d.completedOn.slice(0, 10) : null,
+        practiceBest: num(d.practiceBest, null) || null,
+        deadCenter: d.deadCenter === true,
+      }
+    }
+  }
+  out.known = num(r.known, null)
   return out
 }
 
@@ -123,6 +148,9 @@ export function recordLaunch(data: SaveData, id: string): number {
 
 export interface CompletionResult {
   attempts: number
+  /** Mastery marks earned for the first time by this sink. */
+  newAce: boolean
+  newDeadCenter: boolean
   firstTime: boolean
   /** True when this run beat a previous best (never on the first completion). */
   newBest: boolean
@@ -130,7 +158,7 @@ export interface CompletionResult {
 }
 
 /** Record a sunk ball: closes the run. */
-export function recordCompletion(data: SaveData, id: string, today = localDate()): CompletionResult {
+export function recordCompletion(data: SaveData, id: string, today = localDate(), deadCenter = false): CompletionResult {
   const p = piece(data, id)
   const attempts = Math.max(1, p.runAttempts)
   const firstTime = p.firstAttempts === null
@@ -143,7 +171,11 @@ export function recordCompletion(data: SaveData, id: string, today = localDate()
   if (previousBest === null || attempts < previousBest) p.bestAttempts = attempts
   p.completions++
   p.runAttempts = 0
-  return { attempts, firstTime, newBest, previousBest }
+  const newAce = attempts === 1 && !p.aced
+  const newDeadCenter = deadCenter && !p.deadCenter
+  if (attempts === 1) p.aced = true
+  if (deadCenter) p.deadCenter = true
+  return { attempts, firstTime, newBest, previousBest, newAce, newDeadCenter }
 }
 
 /** Start a fresh practice run (Retry after a completion). */

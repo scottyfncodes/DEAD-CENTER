@@ -1,17 +1,19 @@
 import { describe, expect, it } from 'vitest'
 import { COLLECTIONS, LEVELS } from '../src/levels/collection'
 import { runShot, structuralProblems, tolerance } from '../src/levels/validate'
+import { DEAD_CENTER_OFFSET } from '../src/physics/constants'
+import deadCenter from './fixtures/dead-center.json'
 
 describe('the Collection', () => {
-  it('has thirty pieces in ten collections of three, numbered in order', () => {
-    expect(LEVELS).toHaveLength(30)
-    expect(COLLECTIONS).toHaveLength(10)
+  it('has thirty-six pieces in twelve collections of three, numbered in order', () => {
+    expect(LEVELS).toHaveLength(36)
+    expect(COLLECTIONS).toHaveLength(12)
     LEVELS.forEach((l, i) => expect(l.number).toBe(i + 1))
     for (const c of COLLECTIONS) expect(LEVELS.filter((l) => l.collection === c.id)).toHaveLength(3)
     // Collections run in order: each piece belongs to the collection after or equal to the previous one's.
     const order = COLLECTIONS.map((c) => c.id)
     LEVELS.forEach((l, i) => i && expect(order.indexOf(l.collection)).toBeGreaterThanOrEqual(order.indexOf(LEVELS[i - 1].collection)))
-    expect(new Set(LEVELS.map((l) => l.id)).size).toBe(30)
+    expect(new Set(LEVELS.map((l) => l.id)).size).toBe(36)
   })
 
   it('keeps the original twelve pieces where saves expect them', () => {
@@ -34,6 +36,14 @@ describe('the Collection', () => {
       it('the stored solution sinks the ball in one launch', () => {
         const r = runShot(level, level.solution, true)
         expect(r.outcome).toBe('sunk')
+      })
+
+      it('can be mastered: a stored shot drops it dead centre', () => {
+        const shot = (deadCenter as Record<string, { angle: number; power: number }>)[level.id]
+        expect(shot, 'run npm run dead-center -- ' + level.id).toBeTruthy()
+        const r = runShot(level, shot)
+        expect(r.outcome).toBe('sunk')
+        expect(r.entryOffset!).toBeLessThanOrEqual(DEAD_CENTER_OFFSET)
       })
 
       it('the solution is not knife-edge: it survives small input errors', () => {

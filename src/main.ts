@@ -18,6 +18,24 @@ function storage(): Storage | null {
   }
 }
 
+/** Something failed after the game started: say so plainly, with a way back, instead of freezing silently. */
+function reportFailure(err: unknown) {
+  console.error(err)
+  if (document.getElementById('failure')) return
+  const box = document.createElement('div')
+  box.id = 'failure'
+  box.className = 'failure'
+  box.setAttribute('role', 'alert')
+  box.innerHTML = '<p>Something went wrong on the workbench.</p><button type="button" class="btn">Reload</button>'
+  box.querySelector('button')!.addEventListener('click', () => location.reload())
+  document.body.appendChild(box)
+}
+window.addEventListener('error', (e) => {
+  // Resource load errors (a missing image) bubble as plain Events; only real script errors stop play.
+  if (e.error) reportFailure(e.error)
+})
+window.addEventListener('unhandledrejection', (e) => reportFailure(e.reason))
+
 async function boot() {
   const app = document.getElementById('app')!
   const canvas = document.getElementById('stage') as HTMLCanvasElement
@@ -41,7 +59,7 @@ async function boot() {
   const game = new Game(renderer, storage())
   const params = new URLSearchParams(location.search)
   game.lowRes = params.has('test')
-  game.start(params.get('piece'))
+  game.start(params)
   if (params.has('test')) (window as unknown as { __deadCenter: unknown }).__deadCenter = game.debug()
 
   let raf = 0

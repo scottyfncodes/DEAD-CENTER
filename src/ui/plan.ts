@@ -16,6 +16,31 @@ export function planSVG(level: LevelDef): string {
   const Y = (y: number) => +(h - y + m).toFixed(3)
   const parts: string[] = []
   parts.push(`<rect x="${X(0)}" y="${Y(h)}" width="${w}" height="${h}" rx="0.25" fill="#8a6246"/>`)
+  // Surfaces first, under everything: baize panels, then sloped panels with chevrons pointing downhill.
+  for (const f of level.felts ?? []) {
+    parts.push(`<rect x="${X(f.x - f.w / 2)}" y="${Y(f.y + f.h / 2)}" width="${f.w}" height="${f.h}" rx="0.12" fill="#3d5a48"/>`)
+  }
+  for (const s of level.slopes ?? []) {
+    parts.push(`<rect x="${X(s.x - s.w / 2)}" y="${Y(s.y + s.h / 2)}" width="${s.w}" height="${s.h}" rx="0.12" fill="#b48a5a"/>`)
+    const a = (s.dir * Math.PI) / 180
+    const ux = Math.cos(a)
+    const uy = Math.sin(a)
+    const k = 0.45
+    const step = 1.4
+    const half = Math.max(s.w, s.h) / 2
+    for (let t = -half + step / 2; t < half; t += step) {
+      for (let q = -half + step / 2; q < half; q += step) {
+        // Chevron centre, laid out along (downhill, across) and kept inside the panel.
+        const cx = s.x + ux * t - uy * q
+        const cy = s.y + uy * t + ux * q
+        if (Math.abs(cx - s.x) > s.w / 2 - 0.45 || Math.abs(cy - s.y) > s.h / 2 - 0.45) continue
+        const tip = [cx + ux * k * 0.5, cy + uy * k * 0.5]
+        const l = [cx - ux * k * 0.5 - uy * k * 0.6, cy - uy * k * 0.5 + ux * k * 0.6]
+        const r = [cx - ux * k * 0.5 + uy * k * 0.6, cy - uy * k * 0.5 - ux * k * 0.6]
+        parts.push(`<polyline points="${X(l[0])},${Y(l[1])} ${X(tip[0])},${Y(tip[1])} ${X(r[0])},${Y(r[1])}" fill="none" stroke="#7a5532" stroke-width="0.12" stroke-linecap="round" stroke-linejoin="round"/>`)
+      }
+    }
+  }
   for (const r of buildRails(level)) {
     parts.push(`<rect x="${X(r.cx - r.hx)}" y="${Y(r.cy + r.hy)}" width="${r.hx * 2}" height="${r.hy * 2}" rx="0.3" fill="#5f402b"/>`)
   }

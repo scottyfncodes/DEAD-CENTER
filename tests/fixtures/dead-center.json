@@ -1,0 +1,146 @@
+{
+ "straightaway": {
+  "angle": 90,
+  "power": 0.14
+ },
+ "a-little-further": {
+  "angle": 90,
+  "power": 0.22
+ },
+ "easy-does-it": {
+  "angle": 62.32,
+  "power": 0.6
+ },
+ "the-elbow": {
+  "angle": 46,
+  "power": 0.7
+ },
+ "around-the-bend": {
+  "angle": 28.19,
+  "power": 0.9
+ },
+ "second-thoughts": {
+  "angle": 123.115,
+  "power": 0.94
+ },
+ "three-pins": {
+  "angle": 121.23,
+  "power": 0.66
+ },
+ "the-deflection": {
+  "angle": 86.505,
+  "power": 0.4
+ },
+ "the-long-way": {
+  "angle": 126.415,
+  "power": 0.78
+ },
+ "the-needle": {
+  "angle": 60.63,
+  "power": 0.64
+ },
+ "just-enough": {
+  "angle": 310.605,
+  "power": 0.94
+ },
+ "dead-center": {
+  "angle": 141.555,
+  "power": 0.86
+ },
+ "the-overhang": {
+  "angle": 50.03,
+  "power": 0.5
+ },
+ "the-ledge": {
+  "angle": 307.035,
+  "power": 0.76
+ },
+ "both-sides": {
+  "angle": 240.075,
+  "power": 0.9
+ },
+ "the-chevron": {
+  "angle": 116.07,
+  "power": 0.76
+ },
+ "quarter-turn": {
+  "angle": 93.74,
+  "power": 0.76
+ },
+ "louvres": {
+  "angle": 81.375,
+  "power": 0.82
+ },
+ "ricochet": {
+  "angle": 42.695,
+  "power": 0.7
+ },
+ "the-ring": {
+  "angle": 90,
+  "power": 0.2
+ },
+ "the-funnel": {
+  "angle": 65.755,
+  "power": 0.58
+ },
+ "kickback": {
+  "angle": 134.1,
+  "power": 0.96
+ },
+ "switchback": {
+  "angle": 78.75,
+  "power": 0.8
+ },
+ "the-corridor": {
+  "angle": 306.695,
+  "power": 1
+ },
+ "nine-pins": {
+  "angle": 121.49,
+  "power": 0.82
+ },
+ "side-door": {
+  "angle": 27.545,
+  "power": 0.82
+ },
+ "crowded-room": {
+  "angle": 306.73,
+  "power": 0.94
+ },
+ "soft-landing": {
+  "angle": 65.26,
+  "power": 0.98
+ },
+ "the-rough": {
+  "angle": 49.45,
+  "power": 0.48
+ },
+ "the-green": {
+  "angle": 33.365,
+  "power": 0.94
+ },
+ "downhill": {
+  "angle": 312.55,
+  "power": 0.94
+ },
+ "the-bowl": {
+  "angle": 46.81,
+  "power": 0.12
+ },
+ "the-camber": {
+  "angle": 297.79,
+  "power": 0.7
+ },
+ "the-keyhole": {
+  "angle": 64.275,
+  "power": 0.96
+ },
+ "the-keystone": {
+  "angle": 120.4,
+  "power": 1
+ },
+ "long-odds": {
+  "angle": 77,
+  "power": 0.84
+ }
+}

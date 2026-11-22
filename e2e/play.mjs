@@ -144,6 +144,30 @@ for (const profile of profiles.filter((p) => !only || p.name === only)) {
   const attemptText = await page.textContent('#attempts')
   if (!/Attempt 2/.test(attemptText)) fail(`attempt counter after a miss: ${attemptText}`)
 
+  // The Workbench opens from the Collection, and a shared link offers its shot (desktop only: the flows are the same on touch).
+  if (!profile.touch) {
+    await page.click('#btn-collection')
+    await page.waitForSelector('#btn-workbench')
+    await page.click('#btn-workbench')
+    await page.waitForFunction(() => window.__deadCenter.daily() !== null, null, { timeout: 20000 })
+    const label = await page.textContent('#piece-name')
+    if (!/^Workbench No\. \d+$/.test(label)) fail(`Workbench label: ${label}`)
+    const wb = await page.evaluate(() => window.__deadCenter.dragFor(window.__deadCenter.solution()))
+    await drag(page, cdp, false, wb.from, wb.to)
+    if ((await waitPhase(page, ['sunk', 'settled', 'falling'])) !== 'sunk') fail('Workbench: stored shot did not sink')
+    const daily = await page.evaluate(() => Object.values(window.__deadCenter.save().daily)[0])
+    if (!daily?.solved || daily.firstAttempts !== 1) fail(`Workbench record: ${JSON.stringify(daily)}`)
+    await page.goto(`${base}/?test=1&piece=the-elbow&shot=46,0.7`)
+    await page.waitForFunction(() => window.__deadCenter && window.__deadCenter.phase() === 'ready', null, { timeout: 20000 })
+    await page.evaluate(() => window.__deadCenter.speed(6))
+    if (await page.isHidden('#shared')) fail('shared link: no offer to watch the shot')
+    const before = await page.evaluate(() => window.__deadCenter.save().pieces['the-elbow']?.launches ?? 0)
+    await page.click('#btn-watch')
+    await waitPhase(page, ['ready'], 30000)
+    const after = await page.evaluate(() => window.__deadCenter.save().pieces['the-elbow']?.launches ?? 0)
+    if (after !== before) fail('watching a shared shot recorded an attempt')
+  }
+
   if (errors.length) fail(`console errors: ${errors.join(' | ')}`)
   await ctx.close()
 }

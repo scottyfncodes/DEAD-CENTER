@@ -43,6 +43,17 @@ export function structuralProblems(level: LevelDef): string[] {
   }
   const dist = Math.hypot(level.ball.x - level.pocket.x, level.ball.y - level.pocket.y)
   if (dist < POCKET_R + BALL_R + 1) out.push('ball starts too close to the pocket')
+  const panels = [...(level.felts ?? []).map((f) => ({ ...f, kind: 'felt' })), ...(level.slopes ?? []).map((sl) => ({ ...sl, kind: 'slope' }))]
+  for (const p of panels) {
+    if (p.x - p.w / 2 < -1e-6 || p.x + p.w / 2 > w + 1e-6 || p.y - p.h / 2 < -1e-6 || p.y + p.h / 2 > h + 1e-6) out.push(`${p.kind} panel extends past the board`)
+  }
+  for (let i = 0; i < panels.length; i++) {
+    for (let j = i + 1; j < panels.length; j++) {
+      const a = panels[i]
+      const b = panels[j]
+      if (Math.abs(a.x - b.x) < (a.w + b.w) / 2 - 1e-6 && Math.abs(a.y - b.y) < (a.h + b.h) / 2 - 1e-6) out.push(`${a.kind} and ${b.kind} panels overlap`)
+    }
+  }
   for (const o of level.openings ?? []) {
     const len = o.side === 'near' || o.side === 'far' ? w : h
     if (!(o.from < o.to) || o.from < -RAIL_T || o.to > len + RAIL_T) out.push(`opening on ${o.side} is malformed`)

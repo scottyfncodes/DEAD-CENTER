@@ -5,7 +5,7 @@
  * Angles are degrees, 0 = +x, 90 = straight up the board.
  */
 
-export type CollectionId = 'basics' | 'angles' | 'pins' | 'fine' | 'edges' | 'turned' | 'brass' | 'long' | 'quarters' | 'master'
+export type CollectionId = 'basics' | 'angles' | 'pins' | 'fine' | 'edges' | 'turned' | 'brass' | 'long' | 'quarters' | 'master' | 'felt' | 'tilt' | 'workbench'
 
 export interface Vec2 {
   x: number
@@ -43,6 +43,26 @@ export interface Opening {
   to: number
 }
 
+/** A baize (felt) panel inlaid flush in the board: inside it the ball loses speed much faster. Centre and size. */
+export interface Felt {
+  x: number
+  y: number
+  w: number
+  h: number
+}
+
+/**
+ * A gently sloped panel, flush at its edges: while the ball's centre is over it, it is pushed
+ * downhill. Centre and size; `dir` is the downhill direction in degrees (0 = +x, 90 = up the board).
+ */
+export interface Slope {
+  x: number
+  y: number
+  w: number
+  h: number
+  dir: number
+}
+
 export interface Shot {
   /** Degrees. */
   angle: number
@@ -62,6 +82,8 @@ export interface LevelDef {
   posts?: Post[]
   bars?: Bar[]
   openings?: Opening[]
+  felts?: Felt[]
+  slopes?: Slope[]
   /** 1 (gentle) to 5 (demanding). Informational. */
   difficulty: number
   /** A launch verified by the test suite to sink the ball. */

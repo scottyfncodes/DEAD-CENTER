@@ -3,13 +3,15 @@ import { track } from '../analytics/pulse'
 import { COLLECTIONS, LEVELS } from '../levels/collection'
 import type { LevelDef, Shot } from '../levels/types'
 import { worldFor } from '../levels/validate'
-import { BALL_R, POCKET_R } from '../physics/constants'
+import { BALL_R, DEAD_CENTER_OFFSET, POCKET_R } from '../physics/constants'
+import * as workbench from '../modes/workbench'
 import { isLaunchable, simulate, type ShotResult } from '../physics/sim'
 import { WorkshopRenderer, type Rect } from '../render/scene'
 import { planSVG } from '../ui/plan'
 import { AimTracker, maxPullFor, wrapDeg } from './aim'
 import * as save from './save'
 import * as voice from './voice'
+import { parseShot } from './share'
 
 type Phase = 'ready' | 'aiming' | 'rolling' | 'dropping' | 'falling' | 'settled' | 'resetting' | 'sunk'
 
@@ -17,8 +19,9 @@ const CUP_DROP = 1.12
 const RESET_OUT = 0.14
 const RESET_IN = 0.2
 const SETTLE_WAIT = 1.15
-/** The Collection first shipped with twelve pieces; later ones are "new" to anyone who played before. */
-const ORIGINAL_PIECES = 12
+/** The Collection first shipped with twelve pieces, then thirty; a save with no record of what it knew is dated by its progress. */
+const FIRST_RELEASE = 12
+const SECOND_RELEASE = 30
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T
 
@@ -48,6 +51,16 @@ export class Game {
   private voiceTimer = 0
   private rimGlow = 0
   private reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)')
+  /** The board in play is a Workbench day (null for a Collection piece). */
+  private daily: { date: string } | null = null
+  /** Playing back someone else's shared shot: nothing is recorded. */
+  private replaying = false
+  private shared: Shot | null = null
+  /** First visit: a slow demonstration pull on the ball until the player touches the board. */
+  private demoT = -1
+  /** How many pieces this player knew at the start of this visit (for the New tags). */
+  private knownAtStart = 0
+  private lastSink: { shot: Shot; attempts: number; ace: boolean; deadCenter: boolean } | null = null
   private els = {
     app: $('app'),
     stage: $<HTMLCanvasElement>('stage'),
@@ -73,6 +86,12 @@ export class Game {
     collectionList: $('collection-list'),
     collectionProgress: $('collection-progress'),
     close: $<HTMLButtonElement>('btn-close'),
+    resultMarks: $('result-marks'),
+    share: $<HTMLButtonElement>('btn-share'),
+    sharedCard: $('shared'),
+    sharedLine: $('shared-line'),
+    watch: $<HTMLButtonElement>('btn-watch'),
+    own: $<HTMLButtonElement>('btn-own'),
   }
 
   constructor(renderer: WorkshopRenderer, storage: save.Storage | null) {
@@ -85,27 +104,85 @@ export class Game {
     this.syncToggles()
   }
 
-  /** Pick the piece to open: ?piece=, else the last one played, else the first unsolved. */
-  start(requested?: string | null) {
+  /** What this player's game knew before this visit: recorded, or dated by the furthest piece they touched. */
+  private knownBefore(): number {
+    if (this.data.known !== null) return this.data.known
+    const touched = LEVELS.filter((l) => (this.data.pieces[l.id]?.launches ?? 0) > 0)
+    if (!touched.length) return LEVELS.length
+    return touched.some((l) => l.number > FIRST_RELEASE) ? SECOND_RELEASE : FIRST_RELEASE
+  }
+
+  /**
+   * Open the game: a shared link (?piece= or ?workbench=, with an optional &shot=), else the last piece
+   * played, else the first unsolved. A returning player whose Collection has grown is told once, and
+   * starts on the first new piece if they had finished everything they had.
+   */
+  start(params: URLSearchParams = new URLSearchParams()) {
     const byId = (id: string | null | undefined) => LEVELS.find((l) => l.id === id)
     const first = Object.keys(this.data.pieces).length === 0
-    // A player who solved every piece they had, before the Collection grew, starts on the first new one.
-    const fresh = this.newPieces()
-    const caughtUp = !first && fresh.length > 0 && LEVELS.slice(0, ORIGINAL_PIECES).every((l) => save.isSolved(this.data, l.id))
-    const pick = byId(requested) ?? (caughtUp ? fresh[0] : null) ?? byId(this.data.lastPiece) ?? LEVELS.find((l) => !save.isSolved(this.data, l.id)) ?? LEVELS[0]
-    this.load(pick)
+    const known = this.knownBefore()
+    this.knownAtStart = known
+    const grew = !first && known < LEVELS.length
+    const caughtUp = grew && LEVELS.slice(0, known).every((l) => save.isSolved(this.data, l.id))
+    const firstNew = LEVELS[known]
+    this.data.known = LEVELS.length
+    this.shared = parseShot(params.get('shot'))
+    const date = params.get('workbench')
+    if (date && /^\d{4}-\d{2}-\d{2}$/.test(date)) {
+      this.load(byId(this.data.lastPiece) ?? LEVELS[0])
+      void this.openWorkbench(date)
+    } else {
+      const pick = byId(params.get('piece')) ?? (caughtUp ? firstNew : null) ?? byId(this.data.lastPiece) ?? LEVELS.find((l) => !save.isSolved(this.data, l.id)) ?? LEVELS[0]
+      this.load(pick)
+      this.offerShared()
+    }
     if (first) {
       this.say(voice.onStart(true), 3)
       this.els.hint.hidden = false
-    } else if (caughtUp && pick === fresh[0]) this.say(voice.onNewPieces(fresh.length), 3.6)
+      this.demoT = 0
+    } else if (grew) this.say(voice.onNewPieces(LEVELS.length - known), 3.6)
+    this.persist()
     this.els.app.dataset.state = 'ready'
+  }
+
+  /** Open the Workbench board for a date (today by default). Boards load on first use. */
+  async openWorkbench(date = save.localDate()) {
+    try {
+      const stock = await workbench.loadBoards()
+      this.closeCollection(false)
+      this.load(workbench.boardFor(date, stock), { date })
+      this.offerShared()
+    } catch (err) {
+      console.warn('Workbench unavailable', err)
+      this.say('The Workbench is not available right now.', 3)
+    }
+  }
+
+  /** A link carried a shot: offer to watch it, or to play the board yourself. */
+  private offerShared() {
+    if (!this.shared) return
+    this.els.sharedLine.textContent = this.daily ? `A shot was shared on ${this.level.name}.` : `A shot was shared on No. ${String(this.level.number).padStart(2, '0')}, ${this.level.name}.`
+    this.els.sharedCard.hidden = false
+  }
+
+  private watchShared() {
+    const shot = this.shared
+    this.els.sharedCard.hidden = true
+    if (!shot) return
+    if (this.phase !== 'ready') this.resetBall(true)
+    this.replaying = true
+    this.launch(shot)
   }
 
   // ————— Level flow —————
 
-  load(level: LevelDef) {
+  load(level: LevelDef, opts: { date?: string } = {}) {
     this.level = level
+    this.daily = opts.date ? { date: opts.date } : null
+    this.replaying = false
+    this.els.sharedCard.hidden = true
     this.r.setLevel(level)
+    if (!this.reducedMotion.matches) this.r.intro()
     this.ghost = null
     this.r.setGhost(null)
     this.r.setRimGlow(0)
@@ -119,12 +196,18 @@ export class Game {
     this.r.setAim(null)
     this.setPhase('ready')
     this.els.result.hidden = true
-    this.data.lastPiece = level.id
+    if (!this.daily) this.data.lastPiece = level.id
     this.persist()
-    const col = COLLECTIONS.find((c) => c.id === level.collection)!
-    this.els.pieceNo.textContent = `No. ${String(level.number).padStart(2, '0')}`
-    this.els.pieceCollection.textContent = col.title
-    this.els.pieceName.textContent = level.name
+    if (this.daily) {
+      this.els.pieceNo.textContent = 'The Workbench'
+      this.els.pieceCollection.textContent = workbench.dayLabel(this.daily.date)
+      this.els.pieceName.textContent = level.name
+    } else {
+      const col = COLLECTIONS.find((c) => c.id === level.collection)!
+      this.els.pieceNo.textContent = `No. ${String(level.number).padStart(2, '0')}`
+      this.els.pieceCollection.textContent = col.title
+      this.els.pieceName.textContent = level.name
+    }
     document.title = `${level.name} · DEAD CENTER`
     this.say(null)
     this.updateAttempts()
@@ -142,13 +225,18 @@ export class Game {
     if (!isLaunchable(shot)) return
     this.sound.unlock()
     this.shotParams = { angle: +wrapDeg(shot.angle).toFixed(3), power: +shot.power.toFixed(4) }
-    const attempt = save.recordLaunch(this.data, this.level.id)
-    this.persist()
-    if (!this.runStarted) {
-      this.runStarted = true
-      track('game_start', { mode: 'collection', level: this.level.number })
+    this.stopDemo()
+    if (!this.replaying) {
+      const attempt = save.recordLaunch(this.data, this.level.id)
+      const mode = this.daily ? 'workbench' : 'collection'
+      if (this.daily && this.daily.date === save.localDate()) workbench.recordDailyLaunch(this.data, this.daily.date, this.level.id)
+      this.persist()
+      if (!this.runStarted) {
+        this.runStarted = true
+        track('game_start', { mode, level: this.level.number })
+      }
+      track('shot_launch', { mode, level: this.level.number, attempt })
     }
-    track('shot_launch', { level: this.level.number, attempt })
     this.shot = simulate(worldFor(this.level), this.level.ball, this.shotParams)
     this.eventIdx = 0
     this.lastShot = { ...this.shotParams }
@@ -180,6 +268,7 @@ export class Game {
     if (shot.outcome === 'sunk') {
       this.dropFrom = { ...shot.end }
       this.sound.sink()
+      if (!this.reducedMotion.matches) this.r.burst(this.level.pocket.x, this.level.pocket.y)
       this.rimGlow = 1
       this.setPhase('dropping')
       return
@@ -196,15 +285,38 @@ export class Game {
   }
 
   private complete() {
-    const res = save.recordCompletion(this.data, this.level.id)
+    const deadCenter = (this.shot?.entryOffset ?? 9) <= DEAD_CENTER_OFFSET
+    if (this.replaying) {
+      // Someone else's shot, played back: nothing is recorded. Back to the start for the player's own turn.
+      this.replaying = false
+      this.say(deadCenter ? 'Dead center. Your turn.' : 'That is how it went in. Your turn.', 3)
+      this.r.setRimGlow(0)
+      this.rimGlow = 0
+      this.resetBall()
+      return
+    }
+    const res = save.recordCompletion(this.data, this.level.id, save.localDate(), deadCenter)
+    if (this.daily && this.daily.date === save.localDate()) {
+      workbench.recordDailySink(this.data, this.daily.date, this.level.id, res.attempts, save.localDate())
+      if (deadCenter) this.data.daily[this.daily.date].deadCenter = true
+    }
     this.persist()
-    track('game_complete', { result: 'win', level: this.level.number, attempts: res.attempts, first: res.firstTime })
+    track('game_complete', { result: 'win', mode: this.daily ? 'workbench' : 'collection', level: this.level.number, attempts: res.attempts, first: res.firstTime })
+    this.lastSink = { shot: { ...this.shotParams }, attempts: res.attempts, ace: res.attempts === 1, deadCenter }
     this.sound.success()
     this.ghost = null
     this.r.setGhost(null)
     const p = this.data.pieces[this.level.id]
     this.els.resultLine.textContent = voice.onSink(res.attempts, res.firstTime, res.newBest)
-    this.els.resultMeta.textContent = `No. ${String(this.level.number).padStart(2, '0')} · ${this.level.name}`
+    this.els.resultMeta.textContent = this.daily ? `${this.level.name} · ${workbench.dayLabel(this.daily.date)}` : `No. ${String(this.level.number).padStart(2, '0')} · ${this.level.name}`
+    // Mastery marks for this sink; a mark earned for the first time is called out.
+    const marks: string[] = []
+    const chip = (sym: string, label: string, isNew: boolean) =>
+      `<span class="mark-chip${isNew ? ' is-new' : ''}"><span class="mark-chip__sym" aria-hidden="true">${sym}</span>${label}${isNew ? '<span class="mark-chip__new">New</span>' : ''}</span>`
+    if (res.attempts === 1) marks.push(chip('1', 'Aced', res.newAce))
+    if (deadCenter) marks.push(chip('◎', 'Dead center', res.newDeadCenter))
+    this.els.resultMarks.innerHTML = marks.join('')
+    this.els.resultMarks.hidden = marks.length === 0
     this.els.resultCount.textContent = String(res.attempts)
     const count = res.attempts === 1 ? 'Sunk on the first attempt' : `Sunk in ${res.attempts} attempts`
     let detail = count
@@ -214,7 +326,7 @@ export class Game {
     this.els.resultDetail.textContent = detail
     const idx = LEVELS.indexOf(this.level)
     const allSolved = LEVELS.every((l) => save.isSolved(this.data, l.id))
-    const nextLabel = idx === LEVELS.length - 1 ? (allSolved ? 'The Collection' : 'Next unsolved') : 'Next piece'
+    const nextLabel = this.daily ? 'The Collection' : idx === LEVELS.length - 1 ? (allSolved ? 'The Collection' : 'Next unsolved') : 'Next piece'
     this.els.next.innerHTML = `${nextLabel} <span aria-hidden="true">→</span>`
     this.els.result.hidden = false
     this.runStarted = false
@@ -224,6 +336,10 @@ export class Game {
   }
 
   private nextPiece() {
+    if (this.daily) {
+      this.els.result.hidden = true
+      return this.openCollection()
+    }
     const idx = LEVELS.indexOf(this.level)
     if (idx < LEVELS.length - 1) return this.load(LEVELS[idx + 1])
     const unsolved = LEVELS.find((l) => !save.isSolved(this.data, l.id))
@@ -308,6 +424,16 @@ export class Game {
       }
       case 'ready':
         if (this.keyAim) this.r.setAim(this.level.ball, this.keyAim.angle, this.keyAim.power, true)
+        else if (this.demoT >= 0) {
+          // A ghostly pull, drawn and released, until the player tries it themselves.
+          this.demoT += dt
+          if (this.reducedMotion.matches) this.r.setAim(this.level.ball, 90, 0.35, true)
+          else {
+            const c = (this.demoT % 2.6) / 2.6
+            const pull = c < 0.7 ? ease(c / 0.7) : 1 - (c - 0.7) / 0.3
+            this.r.setAim(this.level.ball, 90 + Math.sin(this.demoT * 0.9) * 6, 0.08 + 0.34 * pull, c < 0.85)
+          }
+        }
         break
     }
     if (this.rimGlow > 0) {
@@ -350,12 +476,13 @@ export class Game {
 
   private bindInput() {
     const stage = this.els.app
-    const blocked = (e: Event) => (e.target as HTMLElement).closest('button, a, .result, .collection')
+    const blocked = (e: Event) => (e.target as HTMLElement).closest('button, a, .result, .collection, .shared')
     stage.addEventListener('pointerdown', (e) => {
       // A second finger while aiming means a pinch or a fumble, never a shot: drop the aim.
       if (this.pointerId !== null && e.pointerId !== this.pointerId) return this.cancelAim()
       if (blocked(e) || this.pointerId !== null) return
       if (e.pointerType === 'mouse' && e.button !== 0) return
+      this.stopDemo()
       this.sound.unlock()
       if (this.phase === 'settled' || this.phase === 'resetting') this.resetBall(true)
       if (this.phase !== 'ready') return
@@ -420,6 +547,7 @@ export class Game {
         if (['arrowleft', 'arrowright', 'arrowup', 'arrowdown', ' ', 'enter'].includes(k)) this.resetBall(true)
       }
       if (this.phase !== 'ready') return
+      if (['arrowleft', 'arrowright', 'arrowup', 'arrowdown', ' ', 'enter'].includes(k)) this.stopDemo()
       const fine = e.shiftKey
       const aim = (this.keyAim ??= this.lastShot ? { ...this.lastShot } : { angle: 90, power: 0.35 })
       if (k === 'arrowleft') aim.angle = wrapDeg(aim.angle + (fine ? 0.1 : 1))
@@ -472,7 +600,14 @@ export class Game {
     this.els.close.addEventListener('click', () => this.closeCollection())
     this.els.again.addEventListener('click', () => this.again())
     this.els.next.addEventListener('click', () => this.nextPiece())
+    this.els.share.addEventListener('click', () => void this.share())
+    this.els.watch.addEventListener('click', () => this.watchShared())
+    this.els.own.addEventListener('click', () => {
+      this.els.sharedCard.hidden = true
+      this.shared = null
+    })
     this.els.collectionList.addEventListener('click', (e) => {
+      if ((e.target as HTMLElement).closest('#btn-workbench')) return void this.openWorkbench()
       const btn = (e.target as HTMLElement).closest<HTMLButtonElement>('[data-piece]')
       if (!btn) return
       const level = LEVELS.find((l) => l.id === btn.dataset.piece)
@@ -506,22 +641,48 @@ export class Game {
   }
 
   /** Pieces added after the first release that this player has never launched on. */
-  private newPieces(): LevelDef[] {
-    return LEVELS.slice(ORIGINAL_PIECES).filter((l) => !(this.data.pieces[l.id]?.launches))
+  private stopDemo() {
+    if (this.demoT < 0) return
+    this.demoT = -1
+    this.r.setAim(null)
+  }
+
+  /** Share the last sink: the board and the exact shot, as a link anyone can open and watch. */
+  private async share() {
+    const sink = this.lastSink
+    if (!sink) return
+    const url = new URL(location.origin + location.pathname)
+    if (this.daily) url.searchParams.set('workbench', this.daily.date)
+    else url.searchParams.set('piece', this.level.id)
+    url.searchParams.set('shot', `${sink.shot.angle},${sink.shot.power}`)
+    const where = this.daily ? this.level.name : `No. ${String(this.level.number).padStart(2, '0')} ${this.level.name}`
+    const how = sink.attempts === 1 ? 'first attempt' : `${sink.attempts} attempts`
+    const text = `DEAD CENTER · ${where}: sunk in ${how}${sink.deadCenter ? ', dead center ◎' : ''}. Can you match it?`
+    try {
+      if (navigator.share) {
+        await navigator.share({ title: 'DEAD CENTER', text, url: url.href })
+        return
+      }
+      await navigator.clipboard.writeText(`${text} ${url.href}`)
+      this.say('Link copied.', 2.4)
+    } catch (err) {
+      if ((err as DOMException)?.name !== 'AbortError') this.say('Could not share from this browser.', 2.6)
+    }
   }
 
   private openCollection() {
     if (this.phase === 'aiming') this.cancelAim()
     const solved = LEVELS.filter((l) => save.isSolved(this.data, l.id)).length
     this.els.collectionProgress.textContent = solved === LEVELS.length ? 'Every piece solved' : `${solved} of ${LEVELS.length} solved`
-    const html: string[] = []
-    const fresh = this.newPieces()
-    const veteran = LEVELS.slice(0, ORIGINAL_PIECES).some((l) => save.isSolved(this.data, l.id))
+    const aced = LEVELS.filter((l) => this.data.pieces[l.id]?.aced).length
+    const centred = LEVELS.filter((l) => this.data.pieces[l.id]?.deadCenter).length
+    this.els.collectionProgress.textContent += ` · ${aced} aced · ${centred} dead center`
+    const html: string[] = [this.workbenchCard()]
     for (const col of COLLECTIONS) {
       const pieces = LEVELS.filter((l) => l.collection === col.id)
       const done = pieces.filter((l) => save.isSolved(this.data, l.id)).length
-      // Marked new only for players who were here before it: untouched, added later, and they have played the original set.
-      const isNew = veteran && pieces.every((l) => fresh.includes(l))
+      // New to this player: added since their last visit, and not yet played.
+      const isNew = this.knownAtStart < LEVELS.length && pieces.every((l) => l.number > this.knownAtStart && !(this.data.pieces[l.id]?.launches))
       const tag = isNew ? '<span class="set__new">New</span>' : ''
       html.push(`<section class="set" aria-labelledby="set-${col.id}"><div class="set__head"><span class="set__numeral" aria-hidden="true">${col.numeral}</span><h3 class="set__title" id="set-${col.id}">${col.title}</h3>${tag}<span class="set__count">${done}/${pieces.length}</span></div><div class="set__grid">`)
       for (const l of pieces) {
@@ -533,8 +694,10 @@ export class Game {
           if (p!.bestAttempts !== null && p!.bestAttempts < p!.firstAttempts!) status += ` · best ${p!.bestAttempts}`
         } else if (p && p.launches > 0) status = `${p.launches} attempt${p.launches === 1 ? '' : 's'} so far`
         const no = String(l.number).padStart(2, '0')
+        const mastery = `<span class="piece__mastery"><span class="m${p?.aced ? ' is-on' : ''}" title="Aced: sunk on a first attempt">1</span><span class="m${p?.deadCenter ? ' is-on' : ''}" title="Dead center">◎</span></span>`
+        const said = [status, p?.aced ? 'aced' : '', p?.deadCenter ? 'dead center' : ''].filter(Boolean).join(', ')
         html.push(
-          `<button type="button" class="piece${solvedP ? ' is-solved' : ''}${l.id === this.level.id ? ' is-current' : ''}" data-piece="${l.id}" aria-label="No. ${no}, ${l.name}. ${status}."><span class="piece__plan">${planSVG(l)}</span><span class="piece__no">NO. ${no}</span><span class="piece__name">${l.name}</span><span class="piece__status"><span class="mark" aria-hidden="true"></span>${status}</span></button>`,
+          `<button type="button" class="piece${solvedP ? ' is-solved' : ''}${l.id === this.level.id && !this.daily ? ' is-current' : ''}" data-piece="${l.id}" aria-label="No. ${no}, ${l.name}. ${said}."><span class="piece__plan">${planSVG(l)}</span><span class="piece__no">NO. ${no}${mastery}</span><span class="piece__name">${l.name}</span><span class="piece__status"><span class="mark" aria-hidden="true"></span>${status}</span></button>`,
         )
       }
       html.push('</div></section>')
@@ -545,6 +708,19 @@ export class Game {
     const current = this.els.collectionList.querySelector<HTMLElement>('.is-current')
     current?.focus({ preventScroll: true })
     if (current && current.getBoundingClientRect().bottom > window.innerHeight) current.scrollIntoView({ block: 'center' })
+  }
+
+  /** Today's Workbench at the top of the Collection: its number, the date, today's result and the streak. */
+  private workbenchCard(): string {
+    const today = save.localDate()
+    const n = workbench.dayNumber(today)
+    const rec = this.data.daily[today]
+    const streak = workbench.streak(this.data, today)
+    let status = 'Today\'s board. Your first run is your score.'
+    if (rec?.solved) status = `Sunk in ${rec.firstAttempts}${rec.deadCenter ? ', dead center' : ''}. A new board tomorrow.`
+    else if (rec && rec.attempts > 0) status = `${rec.attempts} attempt${rec.attempts === 1 ? '' : 's'} so far today.`
+    const streakLine = streak > 1 ? `<span class="bench__streak">${streak} days running</span>` : ''
+    return `<section class="bench" aria-labelledby="bench-title"><button type="button" class="bench__card${rec?.solved ? ' is-solved' : ''}" id="btn-workbench" aria-describedby="bench-status"><span class="bench__kicker">The Workbench · ${workbench.dayLabel(today)}</span><span class="bench__title" id="bench-title">Workbench No. ${n}</span><span class="bench__status" id="bench-status">${status}</span>${streakLine}<span class="bench__go" aria-hidden="true">${rec?.solved ? 'Practise' : 'Play'} →</span></button></section>`
   }
 
   private closeCollection(focus = true) {
@@ -596,6 +772,9 @@ export class Game {
     return {
       phase: () => this.phase,
       level: () => this.level.id,
+      daily: () => this.daily?.date ?? null,
+      workbench: (date?: string) => this.openWorkbench(date),
+      lastEntryOffset: () => this.shot?.entryOffset ?? null,
       levels: () => LEVELS.map((l) => l.id),
       solution: () => this.level.solution,
       ball: () => ({ ...this.pos }),
