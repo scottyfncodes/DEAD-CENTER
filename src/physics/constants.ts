@@ -29,6 +29,12 @@ export const LINEAR_DAMP = 0.12
 /** Below this speed the ball has stopped. */
 export const STOP_SPEED = 0.05
 
+/** Felt panels: extra constant deceleration and speed-proportional drag while the ball is on baize. */
+export const FELT_DECEL = 6.5
+export const FELT_DAMP = 0.55
+/** Slope panels: downhill acceleration while the ball's centre is over one. */
+export const SLOPE_ACCEL = 6.5
+
 /** Pocket: a ball whose centre is over the hole is pulled toward it (it tilts in). */
 export const POCKET_PULL = 34
 /** Extra drag while the ball is over the hole (it loses support and scrubs the rim). */
@@ -49,6 +55,12 @@ export const MATERIALS: Record<Material, MaterialResponse> = {
   ceramic: { restitution: 0.76, grip: 0.96 },
   brass: { restitution: 0.86, grip: 0.98 },
 }
+
+/**
+ * "Dead Center" mastery: a sunk ball whose last line over the rim passed within this distance of the
+ * pocket's centre (a quarter of its radius). Every piece has at least one such shot (tests/levels.test.ts).
+ */
+export const DEAD_CENTER_OFFSET = 0.25
 
 /** Contacts gentler than this are not reported as impacts (resting or sliding contact). */
 export const IMPACT_THRESHOLD = 0.35

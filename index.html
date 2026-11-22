@@ -70,10 +70,22 @@
           <p class="result__line" id="result-line">There it is.</p>
           <p class="result__meta" id="result-meta">No. 01 · The Straightaway</p>
           <p class="result__detail" id="result-detail">Sunk on the first attempt</p>
+          <p class="result__marks" id="result-marks" hidden></p>
         </div>
         <div class="result__actions">
           <button class="btn btn--quiet" id="btn-again" type="button">Again</button>
+          <button class="btn btn--quiet btn--icon" id="btn-share" type="button" aria-label="Share this shot" title="Share this shot">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path class="o" d="M12 3.5v11M7.5 8 12 3.5 16.5 8"/><path class="o" d="M6 11.5H5a1 1 0 0 0-1 1v7a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-7a1 1 0 0 0-1-1h-1"/></svg>
+          </button>
           <button class="btn" id="btn-next" type="button">Next piece <span aria-hidden="true">→</span></button>
+        </div>
+      </section>
+
+      <section class="shared" id="shared" hidden role="dialog" aria-labelledby="shared-line">
+        <p class="shared__line" id="shared-line">A shot was shared with you.</p>
+        <div class="shared__actions">
+          <button class="btn btn--quiet" id="btn-own" type="button">Play it</button>
+          <button class="btn" id="btn-watch" type="button">Watch the shot</button>
         </div>
       </section>
 
@@ -83,7 +95,7 @@
             <div>
               <p class="collection__kicker">DEAD CENTER</p>
               <h2 id="collection-title">The Collection</h2>
-              <p class="collection__progress" id="collection-progress">0 of 30 solved</p>
+              <p class="collection__progress" id="collection-progress">0 of 36 solved</p>
             </div>
             <button class="icon-btn" id="btn-close" type="button" aria-label="Back to the board" title="Back (Esc)">
               <svg viewBox="0 0 24 24" aria-hidden="true"><path class="o" d="M6 6l12 12M18 6L6 18"/></svg>

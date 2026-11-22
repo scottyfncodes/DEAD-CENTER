@@ -4,6 +4,8 @@ import {
   CAPTURE_INSET,
   CAPTURE_SPEED,
   DT,
+  FELT_DAMP,
+  FELT_DECEL,
   FRAME_EVERY,
   IMPACT_THRESHOLD,
   LINEAR_DAMP,
@@ -24,7 +26,7 @@ export type Outcome = 'sunk' | 'rest' | 'fell'
 
 export type ShotEvent =
   | { t: number; kind: 'hit'; mat: Material; intensity: number; x: number; y: number }
-  | { t: number; kind: 'rim'; intensity: number }
+  | { t: number; kind: 'rim'; intensity: number; offset: number }
   | { t: number; kind: 'capture'; speed: number }
   | { t: number; kind: 'edge' }
 
@@ -42,6 +44,11 @@ export interface ShotResult {
   /** Closest the ball's centre came to the pocket centre. */
   closest: number
   contacts: number
+  /**
+   * For a sunk ball: how far off centre it was heading as it crossed the rim the last time, as the
+   * distance from the pocket centre to its line of travel (0 = dead centre). Null otherwise.
+   */
+  entryOffset: number | null
 }
 
 const DEG = Math.PI / 180
@@ -79,6 +86,8 @@ export function simulate(world: World, start: { x: number; y: number }, shot: Sh
   let contacts = 0
   let outcome: Outcome = 'rest'
   let overHole = false
+  let entryOffset: number | null = null
+  const zones = world.zones
   const maxSteps = Math.round(MAX_TIME / DT)
   let step = 0
 
@@ -90,17 +99,35 @@ export function simulate(world: World, start: { x: number; y: number }, shot: Sh
     const dpy = py - y
     const dp = Math.sqrt(dpx * dpx + dpy * dpy)
     const inHole = dp < POCKET_R
-    if (inHole && !overHole) events.push({ t, kind: 'rim', intensity: Math.sqrt(vx * vx + vy * vy) })
+    if (inHole && !overHole) {
+      const sp0 = Math.sqrt(vx * vx + vy * vy)
+      entryOffset = sp0 > 1e-6 ? Math.abs(dpx * vy - dpy * vx) / sp0 : dp
+      events.push({ t, kind: 'rim', intensity: sp0, offset: entryOffset })
+    }
     overHole = inHole
     if (inHole && dp > 1e-6) {
       vx += (dpx / dp) * POCKET_PULL * DT
       vy += (dpy / dp) * POCKET_PULL * DT
     }
 
+    // Surfaces under the ball's centre: felt slows it, a slope pushes it downhill.
+    let onFelt = false
+    let onSlope = false
+    for (let i = 0; i < zones.length; i++) {
+      const z = zones[i]
+      if (x < z.minx || x > z.maxx || y < z.miny || y > z.maxy) continue
+      if (z.kind === 'felt') onFelt = true
+      else {
+        onSlope = true
+        vx += z.ax * DT
+        vy += z.ay * DT
+      }
+    }
+
     // Rolling resistance.
     let speed = Math.sqrt(vx * vx + vy * vy)
     if (speed > 0) {
-      const decel = ROLL_DECEL + LINEAR_DAMP * speed + (inHole ? POCKET_DRAG : 0)
+      const decel = ROLL_DECEL + LINEAR_DAMP * speed + (inHole ? POCKET_DRAG : 0) + (onFelt ? FELT_DECEL + FELT_DAMP * speed : 0)
       const next = speed - decel * DT
       const k = next > 0 ? next / speed : 0
       vx *= k
@@ -116,6 +143,7 @@ export function simulate(world: World, start: { x: number; y: number }, shot: Sh
     y += vy * DT
 
     // Resolve contacts, deepest first, a few passes for corners and wedges.
+    let touched = false
     for (let iter = 0; iter < 4; iter++) {
       let best = -1
       let bd = 0
@@ -131,6 +159,7 @@ export function simulate(world: World, start: { x: number; y: number }, shot: Sh
         }
       }
       if (best < 0) break
+      touched = true
       const col = colliders[best]
       x += bnx * bd
       y += bny * bd
@@ -172,7 +201,8 @@ export function simulate(world: World, start: { x: number; y: number }, shot: Sh
       break
     }
 
-    if (sp < STOP_SPEED && d >= POCKET_R) {
+    // On a slope the ball only comes to rest against something; a free ball momentarily slow there keeps rolling.
+    if (sp < STOP_SPEED && d >= POCKET_R && (!onSlope || touched)) {
       vx = 0
       vy = 0
       break
@@ -191,5 +221,6 @@ export function simulate(world: World, start: { x: number; y: number }, shot: Sh
     endVelocity: { x: vx, y: vy },
     closest,
     contacts,
+    entryOffset: outcome === 'sunk' ? entryOffset : null,
   }
 }

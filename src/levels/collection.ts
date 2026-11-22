@@ -1,6 +1,6 @@
 import type { Block, CollectionDef, LevelDef } from './types'
 
-/** The walled keyhole shared by Nos. 28 and 29: open only toward the far rail. No. 29 puts a brass keystone across No. 28's route. */
+/** The walled keyhole shared by Nos. 34 and 35: open only toward the far rail. No. 35 puts a brass keystone across No. 34's route. */
 const KEYHOLE: Block[] = [
   { x: 6, y: 11.2, w: 5, h: 0.8 },
   { x: 3.9, y: 13.6, w: 0.8, h: 4 },
@@ -19,7 +19,9 @@ export const COLLECTIONS: CollectionDef[] = [
   { id: 'brass', numeral: 'VII', title: 'Brass Work' },
   { id: 'long', numeral: 'VIII', title: 'Long Rolls' },
   { id: 'quarters', numeral: 'IX', title: 'Close Quarters' },
-  { id: 'master', numeral: 'X', title: 'Masterworks' },
+  { id: 'felt', numeral: 'X', title: 'Baize' },
+  { id: 'tilt', numeral: 'XI', title: 'On the Tilt' },
+  { id: 'master', numeral: 'XII', title: 'Masterworks' },
 ]
 
 /**
@@ -464,10 +466,100 @@ export const LEVELS: LevelDef[] = [
     solution: { angle: 307.42, power: 0.882 },
   },
 
-  // X. Masterworks: the last three, and the tightest.
+  // X. Baize: felt inlays that take the pace off a ball.
+  {
+    id: 'soft-landing',
+    number: 28,
+    name: 'Soft Landing',
+    collection: 'felt',
+    size: { w: 7, h: 22 },
+    ball: { x: 3.5, y: 2.6 },
+    pocket: { x: 3.5, y: 19.4 },
+    felts: [{ x: 3.5, y: 15.4, w: 7, h: 4 }],
+    difficulty: 2,
+    solution: { angle: 69.73, power: 0.703 },
+  },
+  {
+    id: 'the-rough',
+    number: 29,
+    name: 'The Rough',
+    collection: 'felt',
+    size: { w: 12, h: 20 },
+    ball: { x: 6, y: 2.6 },
+    pocket: { x: 6, y: 17.5 },
+    felts: [{ x: 6, y: 10.4, w: 7, h: 6 }],
+    posts: [{ x: 6, y: 10.4, r: 0.6 }],
+    difficulty: 3,
+    solution: { angle: 56.71, power: 0.699 },
+  },
+  {
+    id: 'the-green',
+    number: 30,
+    name: 'The Green',
+    collection: 'felt',
+    size: { w: 12, h: 21 },
+    ball: { x: 2.5, y: 2.6 },
+    pocket: { x: 8.6, y: 16.4 },
+    felts: [{ x: 8.6, y: 15.6, w: 6.8, h: 8 }],
+    blocks: [{ x: 4.2, y: 10, w: 8.4, h: 0.9 }],
+    posts: [{ x: 6.8, y: 18.6, r: 0.55 }],
+    difficulty: 4,
+    solution: { angle: 44.72, power: 0.82 },
+  },
+
+  // XI. On the Tilt: sloped panels that bend a slow ball downhill.
+  {
+    id: 'downhill',
+    number: 31,
+    name: 'Downhill',
+    collection: 'tilt',
+    size: { w: 12, h: 20 },
+    ball: { x: 3, y: 2.6 },
+    pocket: { x: 9, y: 17 },
+    slopes: [{ x: 6, y: 10, w: 12, h: 8, dir: 0 }],
+    blocks: [{ x: 6, y: 10, w: 0.9, h: 6 }],
+    difficulty: 2,
+    solution: { angle: 302.94, power: 0.932 },
+  },
+  {
+    id: 'the-bowl',
+    number: 32,
+    name: 'The Bowl',
+    collection: 'tilt',
+    size: { w: 13, h: 21 },
+    ball: { x: 6.5, y: 2.6 },
+    pocket: { x: 6.5, y: 13 },
+    slopes: [
+      { x: 6.5, y: 9.75, w: 13, h: 3.5, dir: 90 },
+      { x: 6.5, y: 16.25, w: 13, h: 3.5, dir: 270 },
+      { x: 2.4, y: 13, w: 4.8, h: 3, dir: 0 },
+      { x: 10.6, y: 13, w: 4.8, h: 3, dir: 180 },
+    ],
+    blocks: [{ x: 6.5, y: 7.2, w: 5, h: 0.8 }],
+    difficulty: 3,
+    solution: { angle: 244.66, power: 0.348 },
+  },
+  {
+    id: 'the-camber',
+    number: 33,
+    name: 'The Camber',
+    collection: 'tilt',
+    size: { w: 12, h: 21 },
+    ball: { x: 2.4, y: 2.6 },
+    pocket: { x: 6, y: 18 },
+    slopes: [
+      { x: 3, y: 11, w: 6, h: 10, dir: 0 },
+      { x: 9, y: 11, w: 6, h: 10, dir: 180 },
+    ],
+    posts: [{ x: 6, y: 9, r: 0.6 }],
+    difficulty: 3,
+    solution: { angle: 92.74, power: 0.534 },
+  },
+
+  // XII. Masterworks: the last three, and the tightest.
   {
     id: 'the-keyhole',
-    number: 28,
+    number: 34,
     name: 'The Keyhole',
     collection: 'master',
     size: { w: 12, h: 22 },
@@ -479,7 +571,7 @@ export const LEVELS: LevelDef[] = [
   },
   {
     id: 'the-keystone',
-    number: 29,
+    number: 35,
     name: 'The Keystone',
     collection: 'master',
     size: { w: 12, h: 22 },
@@ -492,7 +584,7 @@ export const LEVELS: LevelDef[] = [
   },
   {
     id: 'long-odds',
-    number: 30,
+    number: 36,
     name: 'Long Odds',
     collection: 'master',
     size: { w: 12, h: 21 },

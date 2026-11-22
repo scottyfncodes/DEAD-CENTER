@@ -1,5 +1,5 @@
 import type { LevelDef, Opening } from '../levels/types'
-import { BAR_R, BALL_R, RAIL_T, type Material } from './constants'
+import { BAR_R, BALL_R, RAIL_T, SLOPE_ACCEL, type Material } from './constants'
 
 /** Oriented rectangle. */
 export interface BoxCollider {
@@ -52,9 +52,22 @@ export interface Rail {
   hy: number
 }
 
+/** A surface zone (felt or slope): an axis-aligned rectangle the ball's centre can be over. */
+export interface Zone {
+  kind: 'felt' | 'slope'
+  minx: number
+  maxx: number
+  miny: number
+  maxy: number
+  /** Slope only: downhill acceleration components. */
+  ax: number
+  ay: number
+}
+
 export interface World {
   w: number
   h: number
+  zones: Zone[]
   colliders: Collider[]
   rails: Rail[]
   pocket: { x: number; y: number }
@@ -137,7 +150,14 @@ export function buildWorld(level: LevelDef): World {
       bound: Math.hypot(s.x2 - s.x1, s.y2 - s.y1) / 2 + BAR_R,
     })
   }
-  return { w: level.size.w, h: level.size.h, colliders, rails: buildRails(level), pocket: { ...level.pocket } }
+  const zones: Zone[] = []
+  const rect = (z: { x: number; y: number; w: number; h: number }) => ({ minx: z.x - z.w / 2, maxx: z.x + z.w / 2, miny: z.y - z.h / 2, maxy: z.y + z.h / 2 })
+  for (const f of level.felts ?? []) zones.push({ kind: 'felt', ...rect(f), ax: 0, ay: 0 })
+  for (const sl of level.slopes ?? []) {
+    const a = sl.dir * DEG
+    zones.push({ kind: 'slope', ...rect(sl), ax: Math.cos(a) * SLOPE_ACCEL, ay: Math.sin(a) * SLOPE_ACCEL })
+  }
+  return { w: level.size.w, h: level.size.h, zones, colliders, rails: buildRails(level), pocket: { ...level.pocket } }
 }
 
 export interface Contact {

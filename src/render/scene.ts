@@ -1,10 +1,11 @@
 import * as THREE from 'three'
-import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js'
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js'
 import { BALL_R, BAR_R, POCKET_R, RAIL_T } from '../physics/constants'
 import { buildRails } from '../physics/world'
 import type { LevelDef } from '../levels/types'
-import { brushedTexture, dotTexture, walnutTexture } from './textures'
+import { brushedTexture, contactShadowTexture, dotTexture, feltTexture, slopeTexture, walnutTexture } from './textures'
+import { FINISHES, type Finish } from './finishes'
+import type { CollectionId } from '../levels/types'
 
 /** Heights in world units (y is up; board y maps to world -z). */
 const SLAB_D = 0.9
@@ -29,8 +30,67 @@ const PALETTE = {
   brass: 0xc29d5f,
   steel: 0xd3d9db,
   ink: 0x303532,
-  cup: 0x1f1712,
+  cup: 0x1d2a22,
 }
+
+/** Board-space rectangle (centre, size). */
+interface Panel {
+  x: number
+  y: number
+  w: number
+  h: number
+}
+
+/** A flat panel lying on the board, with a hole cut where it covers the pocket; UVs run 0..1 across the panel. */
+function panelGeometry(p: Panel, pocket: { x: number; y: number }, holeR: number, tile = 0): THREE.BufferGeometry {
+  const x0 = p.x - p.w / 2
+  const y0 = p.y - p.h / 2
+  const shape = new THREE.Shape()
+  shape.moveTo(x0, y0)
+  shape.lineTo(x0 + p.w, y0)
+  shape.lineTo(x0 + p.w, y0 + p.h)
+  shape.lineTo(x0, y0 + p.h)
+  shape.closePath()
+  const dx = Math.max(x0 - pocket.x, 0, pocket.x - (x0 + p.w))
+  const dy = Math.max(y0 - pocket.y, 0, pocket.y - (y0 + p.h))
+  if (dx * dx + dy * dy < holeR * holeR) {
+    const hole = new THREE.Path()
+    hole.absarc(pocket.x, pocket.y, holeR, 0, Math.PI * 2, true)
+    shape.holes.push(hole)
+  }
+  const geo = new THREE.ShapeGeometry(shape, 48)
+  const pos = geo.getAttribute('position') as THREE.BufferAttribute
+  const uv = new Float32Array(pos.count * 2)
+  for (let i = 0; i < pos.count; i++) {
+    // Either 0..1 across the panel, or tiled every `tile` units (for a repeating texture like felt).
+    uv[i * 2] = (pos.getX(i) - x0) / (tile || p.w)
+    uv[i * 2 + 1] = (pos.getY(i) - y0) / (tile || p.h)
+  }
+  geo.setAttribute('uv', new THREE.BufferAttribute(uv, 2))
+  // Shape space is board space (x, y); lay it on the board: board y maps to world -z.
+  geo.rotateX(-Math.PI / 2)
+  return geo
+}
+
+/** Remove the given intervals from [a, b]; returns what is left. */
+function subtract(a: number, b: number, cuts: Array<[number, number]>): Array<[number, number]> {
+  let out: Array<[number, number]> = [[a, b]]
+  for (const [c0, c1] of cuts) {
+    const next: Array<[number, number]> = []
+    for (const [s0, s1] of out) {
+      if (c1 <= s0 || c0 >= s1) next.push([s0, s1])
+      else {
+        if (c0 > s0) next.push([s0, c0])
+        if (c1 < s1) next.push([c1, s1])
+      }
+    }
+    out = next
+  }
+  return out.filter(([s0, s1]) => s1 - s0 > 0.05)
+}
+
+const SPARKS = 40
+const BURST_LIFE = 0.9
 
 /** Map board coordinates to world space. */
 function w3(x: number, y: number, h = 0): THREE.Vector3 {
@@ -109,7 +169,21 @@ export class WorkshopRenderer {
     ceramic: THREE.MeshStandardMaterial
     brass: THREE.MeshStandardMaterial
     cup: THREE.MeshStandardMaterial
+    felt: THREE.MeshPhysicalMaterial
   }
+  /** Lacquered timber per collection, made on first use and kept. */
+  private finishes = new Map<CollectionId, { field: THREE.MeshPhysicalMaterial; rail: THREE.MeshPhysicalMaterial; stringing: THREE.MeshStandardMaterial }>()
+  /** Materials shared across levels: never disposed when a board is rebuilt. */
+  private keep = new Set<THREE.Material>()
+  private sparks: THREE.InstancedMesh
+  private sparkState: Array<{ x: number; y: number; z: number; vx: number; vy: number; vz: number; life: number; age: number; size: number }> = []
+  private ripple: THREE.Mesh
+  private burstAt = -1
+  private clock = performance.now()
+  /** A new board settles onto the table: 0 → 1 over a short drop (1 = at rest). */
+  private introT = 1
+  private ballY = BALL_R
+  private contact: THREE.Mesh | null = null
   private raycaster = new THREE.Raycaster()
   private plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0)
   private size = { w: 1, h: 1 }
@@ -126,19 +200,23 @@ export class WorkshopRenderer {
     this.renderer.shadowMap.enabled = true
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap
 
-    const walnut = walnutTexture(512)
-    const railWood = walnutTexture(512, [92, 60, 40])
     const brushed = brushedTexture()
+    const basics = this.finish('basics')
     this.mats = {
-      walnut: new THREE.MeshStandardMaterial({ map: walnut, roughness: 0.58, metalness: 0, envMapIntensity: 0.55 }),
-      rail: new THREE.MeshStandardMaterial({ map: railWood, roughness: 0.5, metalness: 0, envMapIntensity: 0.6 }),
-      ceramic: new THREE.MeshStandardMaterial({ color: PALETTE.ceramic, roughness: 0.62, metalness: 0, envMapIntensity: 0.5 }),
-      brass: new THREE.MeshStandardMaterial({ color: PALETTE.brass, roughness: 0.34, metalness: 1, roughnessMap: brushed, envMapIntensity: 1.1 }),
-      cup: new THREE.MeshStandardMaterial({ color: PALETTE.cup, roughness: 0.9, metalness: 0, side: THREE.BackSide }),
+      walnut: basics.field,
+      rail: basics.rail,
+      // Glazed ceramic: a soft body under a thin clear glaze.
+      ceramic: new THREE.MeshPhysicalMaterial({ color: PALETTE.ceramic, roughness: 0.55, metalness: 0, clearcoat: 0.6, clearcoatRoughness: 0.18, envMapIntensity: 0.6 }),
+      brass: new THREE.MeshStandardMaterial({ color: PALETTE.brass, roughness: 0.3, metalness: 1, roughnessMap: brushed, envMapIntensity: 1.25 }),
+      // The pocket is lined with dark baize.
+      cup: new THREE.MeshStandardMaterial({ color: PALETTE.cup, map: feltTexture(128, [28, 44, 36]), roughness: 1, metalness: 0, side: THREE.BackSide }),
+      felt: new THREE.MeshPhysicalMaterial({ map: feltTexture(), roughness: 0.95, metalness: 0, sheen: 1, sheenRoughness: 0.55, sheenColor: new THREE.Color(0x9fc2a8), envMapIntensity: 0.35 }),
     }
+    for (const m of Object.values(this.mats)) this.keep.add(m)
     this.rimMat = this.mats.brass.clone()
     this.rimMat.emissive = new THREE.Color(0xf2d39a)
     this.rimMat.emissiveIntensity = 0
+    this.keep.add(this.rimMat)
 
     // Lighting: a warm key from the upper left, soft sky fill, and the room for reflections.
     this.scene.add(new THREE.HemisphereLight(0xfff6e8, 0x6b4a33, 0.55))
@@ -165,7 +243,7 @@ export class WorkshopRenderer {
     // The ball: polished steel.
     this.ball = new THREE.Mesh(
       new THREE.SphereGeometry(BALL_R, 48, 32),
-      new THREE.MeshStandardMaterial({ color: PALETTE.steel, metalness: 1, roughness: 0.09, envMapIntensity: 1.25 }),
+      new THREE.MeshStandardMaterial({ color: PALETTE.steel, metalness: 1, roughness: 0.07, envMapIntensity: 1.4 }),
     )
     this.ball.castShadow = true
     this.scene.add(this.ball)
@@ -202,6 +280,24 @@ export class WorkshopRenderer {
     this.ghostEnd.visible = false
     this.scene.add(this.ghost, this.ghostEnd)
 
+    // The sink: a burst of brass glints and a ripple of light across the wood (skipped with reduced motion).
+    const dot2 = dotTexture()
+    const sparkGeo = new THREE.PlaneGeometry(1, 1)
+    this.sparks = new THREE.InstancedMesh(
+      sparkGeo,
+      new THREE.MeshBasicMaterial({ color: 0xffe1a0, alphaMap: dot2, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }),
+      SPARKS,
+    )
+    this.sparks.frustumCulled = false
+    this.sparks.count = 0
+    this.sparks.renderOrder = 4
+    const rippleGeo = new THREE.RingGeometry(0.92, 1, 72)
+    rippleGeo.rotateX(-Math.PI / 2)
+    this.ripple = new THREE.Mesh(rippleGeo, new THREE.MeshBasicMaterial({ color: 0xffd98f, transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending }))
+    this.ripple.visible = false
+    this.ripple.renderOrder = 4
+    this.scene.add(this.sparks, this.ripple)
+
     this.buildEnvironment()
     canvas.addEventListener('webglcontextlost', (e) => {
       e.preventDefault()
@@ -215,21 +311,145 @@ export class WorkshopRenderer {
   }
 
   private buildEnvironment() {
+    // A small warm workshop for reflections: plaster walls, a tall north window, and a lamp over the bench.
+    // Steel and brass pick up its light, so the pieces read as objects in a room, not on a page.
     const pmrem = new THREE.PMREMGenerator(this.renderer)
-    const room = new RoomEnvironment()
-    const rt = pmrem.fromScene(room, 0.035)
+    const room = new THREE.Scene()
+    const mats: THREE.Material[] = []
+    const box = (w: number, h: number, d: number, color: number, x: number, y: number, z: number, emissive = 0, intensity = 0, side: THREE.Side = THREE.FrontSide) => {
+      const mat = new THREE.MeshStandardMaterial({ color, roughness: 1, emissive, emissiveIntensity: intensity, side })
+      mats.push(mat)
+      const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat)
+      m.position.set(x, y, z)
+      room.add(m)
+      return m
+    }
+    box(40, 22, 40, 0xe6dccb, 0, 9, 0, 0xe6dccb, 0.35, THREE.BackSide) // pale plaster walls and ceiling
+    box(40, 0.2, 40, 0x9a8167, 0, -1.9, 0) // a warm wooden floor
+    box(30, 0.2, 22, 0xffffff, 0, 19.7, -2, 0xfff6ea, 2.2) // the ceiling's broad skylight: what a ball seen from above reflects
+    box(0.2, 10, 8, 0xffffff, -19.8, 8, -4, 0xf6f4ee, 5.5) // the tall north window
+    box(0.2, 10, 4, 0xffffff, -19.8, 8, 7, 0xf6f4ee, 3.5) // a narrower pane
+    box(6, 0.3, 2.4, 0xffffff, 4, 17.5, 3, 0xffd7a0, 8) // the lamp over the bench
+    box(30, 6, 0.4, 0x7a634c, 0, 1.2, -19.4) // the bench back, a little darker for contrast in the metal
+    room.add(new THREE.AmbientLight(0xffffff, 0.8))
+    const rt = pmrem.fromScene(room, 0.03)
     this.env?.dispose()
     this.env = rt.texture
     this.scene.environment = this.env
-    this.scene.environmentIntensity = 0.75
+    this.scene.environmentIntensity = 0.85
     room.traverse((o) => {
       const m = o as THREE.Mesh
-      if (m.isMesh) {
-        m.geometry.dispose()
-        ;(m.material as THREE.Material).dispose()
-      }
+      if (m.isMesh) m.geometry.dispose()
     })
+    for (const m of mats) m.dispose()
     pmrem.dispose()
+  }
+
+  /** The lacquered timber for a collection (field, rails and the inlaid stringing), made once. */
+  private finish(id: CollectionId) {
+    let f = this.finishes.get(id)
+    if (f) return f
+    const spec: Finish = FINISHES[id] ?? FINISHES.basics
+    const fieldTex = walnutTexture(512, spec.field, spec.seed, spec.lines)
+    const railTex = walnutTexture(512, spec.rail, spec.seed + 3, spec.lines)
+    f = {
+      // Hand-rubbed lacquer: a satin body with a thin clear coat that catches the window.
+      field: new THREE.MeshPhysicalMaterial({ map: fieldTex, roughness: 0.55, metalness: 0, clearcoat: 0.42, clearcoatRoughness: 0.32, envMapIntensity: 0.6 }),
+      rail: new THREE.MeshPhysicalMaterial({ map: railTex, roughness: 0.48, metalness: 0, clearcoat: 0.55, clearcoatRoughness: 0.26, envMapIntensity: 0.7 }),
+      stringing: new THREE.MeshStandardMaterial({ color: spec.stringing, roughness: 0.5, metalness: 0, envMapIntensity: 0.5 }),
+    }
+    this.finishes.set(id, f)
+    this.keep.add(f.field)
+    this.keep.add(f.rail)
+    this.keep.add(f.stringing)
+    return f
+  }
+
+  /** A burst of brass glints and a ring of light at the pocket (the moment the ball drops). */
+  burst(x: number, y: number) {
+    this.burstAt = 0
+    this.ripple.position.copy(w3(x, y, 0.03))
+    this.ripple.visible = true
+    this.sparkState = []
+    let seed = 17
+    const rnd = () => ((seed = (seed * 1664525 + 1013904223) >>> 0) / 4294967296)
+    for (let i = 0; i < SPARKS; i++) {
+      const a = (i / SPARKS) * Math.PI * 2 + rnd() * 0.4
+      const out = 1.6 + rnd() * 3.2
+      this.sparkState.push({
+        x: x + Math.cos(a) * POCKET_R,
+        y: 0.05,
+        z: -(y + Math.sin(a) * POCKET_R),
+        vx: Math.cos(a) * out,
+        vy: 3 + rnd() * 4.5,
+        vz: -Math.sin(a) * out,
+        life: 0.45 + rnd() * 0.45,
+        age: 0,
+        size: 0.1 + rnd() * 0.12,
+      })
+    }
+  }
+
+  /** Play the board's arrival: it is set down on the table from just above. */
+  intro() {
+    this.introT = 0
+    this.applyIntro()
+  }
+
+  private introLift(): number {
+    const t = Math.min(1, this.introT)
+    // Ease out with the faintest settle at the end.
+    const k = 1 - Math.pow(1 - t, 3)
+    const settle = t > 0.75 ? Math.sin(((t - 0.75) / 0.25) * Math.PI) * 0.03 : 0
+    return (1 - k) * 1.6 - settle
+  }
+
+  private applyIntro() {
+    const lift = this.introT < 1 ? this.introLift() : 0
+    this.board.position.y = lift
+    this.ball.position.y = this.ballY + lift
+    if (this.contact) {
+      // The contact shadow stays on the table and darkens as the board comes down.
+      this.contact.position.y = -SLAB_D - 0.05 - lift
+      ;(this.contact.material as THREE.MeshBasicMaterial).opacity = 0.55 * (1 - Math.min(1, lift / 1.6))
+    }
+  }
+
+  private animate(dt: number) {
+    if (this.introT < 1) {
+      this.introT = Math.min(1, this.introT + dt / 0.42)
+      this.applyIntro()
+    }
+    if (this.burstAt < 0) return
+    this.burstAt += dt
+    const t = this.burstAt
+    // Ring of light: grows from the rim and fades.
+    const u = Math.min(1, t / 0.75)
+    const sc = POCKET_R * (1 + u * 2.4)
+    this.ripple.scale.set(sc, 1, sc)
+    ;(this.ripple.material as THREE.MeshBasicMaterial).opacity = 0.55 * (1 - u) * (1 - u)
+    let n = 0
+    for (const p of this.sparkState) {
+      p.age += dt
+      if (p.age > p.life) continue
+      p.vy -= 22 * dt
+      p.x += p.vx * dt
+      p.y = Math.max(0.03, p.y + p.vy * dt)
+      p.z += p.vz * dt
+      const k = 1 - p.age / p.life
+      this.dummy.position.set(p.x, p.y, p.z)
+      this.dummy.quaternion.copy(this.camera.quaternion)
+      this.dummy.scale.setScalar(p.size * (0.4 + k))
+      this.dummy.updateMatrix()
+      this.sparks.setMatrixAt(n++, this.dummy.matrix)
+    }
+    this.sparks.count = n
+    this.sparks.instanceMatrix.needsUpdate = true
+    if (t > BURST_LIFE && n === 0) {
+      this.burstAt = -1
+      this.ripple.visible = false
+      this.sparks.count = 0
+    }
   }
 
   /** Build the board for a level. Previous geometry is disposed. */
@@ -242,8 +462,9 @@ export class WorkshopRenderer {
         if (m.isMesh) {
           m.geometry.dispose()
           const mat = m.material as THREE.Material
-          if (!Object.values(this.mats).includes(mat as THREE.MeshStandardMaterial) && mat !== this.rimMat) {
+          if (!this.keep.has(mat)) {
             ;(mat as THREE.MeshStandardMaterial).map?.dispose()
+            ;(mat as THREE.MeshStandardMaterial).alphaMap?.dispose()
             mat.dispose()
           }
         }
@@ -251,6 +472,12 @@ export class WorkshopRenderer {
     }
     const { w, h } = level.size
     const g = this.board
+    const fin = this.finish(level.collection)
+    this.mats.walnut = fin.field
+    this.mats.rail = fin.rail
+    this.burstAt = -1
+    this.ripple.visible = false
+    this.sparks.count = 0
 
     // Walnut playing surface with the pocket cut through it. Bevel is inset so edges land on the board bounds.
     const bev = 0.09
@@ -290,6 +517,81 @@ export class WorkshopRenderer {
       m.castShadow = m.receiveShadow = true
       g.add(m)
     }
+
+    // Brass corner caps where the rails meet (skipped where a corner is open).
+    const capGeo = new RoundedBoxGeometry(RAIL_T * 0.86, 0.06, RAIL_T * 0.86, 2, 0.025)
+    for (const [side, cx] of [['near', 0], ['near', w], ['far', 0], ['far', w]] as const) {
+      if (gapAt(level, side, cx)) continue
+      const cy = side === 'near' ? -RAIL_T / 2 : h + RAIL_T / 2
+      const x = cx === 0 ? -RAIL_T / 2 : w + RAIL_T / 2
+      const cap = new THREE.Mesh(capGeo.clone(), this.mats.brass)
+      cap.position.copy(w3(x, cy, RAIL_TOP + 0.02))
+      cap.castShadow = cap.receiveShadow = true
+      g.add(cap)
+    }
+    capGeo.dispose()
+
+    // Felt inlays and sloped marquetry panels, flush with the field.
+    for (const f of level.felts ?? []) {
+      const m = new THREE.Mesh(panelGeometry(f, level.pocket, POCKET_R + 0.09, 3), this.mats.felt)
+      m.position.y = 0.006
+      m.receiveShadow = true
+      g.add(m)
+    }
+    for (const sl of level.slopes ?? []) {
+      const mat = new THREE.MeshPhysicalMaterial({ map: slopeTexture(sl.w, sl.h, sl.dir), roughness: 0.5, metalness: 0, clearcoat: 0.4, clearcoatRoughness: 0.3, envMapIntensity: 0.6 })
+      const m = new THREE.Mesh(panelGeometry(sl, level.pocket, POCKET_R + 0.09), mat)
+      m.position.y = 0.004
+      m.receiveShadow = true
+      g.add(m)
+    }
+
+    // Inlaid stringing: a pale line just inside the rails, interrupted where a panel or the pocket meets it.
+    const inset = 0.34
+    const sw = 0.055
+    const zones = [...(level.felts ?? []), ...(level.slopes ?? [])]
+    const pr = POCKET_R + 0.25
+    const lines: Array<{ along: 'x' | 'y'; at: number; a: number; b: number }> = [
+      { along: 'x', at: inset, a: inset, b: w - inset },
+      { along: 'x', at: h - inset, a: inset, b: w - inset },
+      { along: 'y', at: inset, a: inset, b: h - inset },
+      { along: 'y', at: w - inset, a: inset, b: h - inset },
+    ]
+    for (const ln of lines) {
+      const cuts: Array<[number, number]> = []
+      for (const z of zones) {
+        const [lo, hi, c0, c1] = ln.along === 'x' ? [z.y - z.h / 2, z.y + z.h / 2, z.x - z.w / 2, z.x + z.w / 2] : [z.x - z.w / 2, z.x + z.w / 2, z.y - z.h / 2, z.y + z.h / 2]
+        if (ln.at >= lo - 0.1 && ln.at <= hi + 0.1) cuts.push([c0 - 0.12, c1 + 0.12])
+      }
+      const pc = ln.along === 'x' ? level.pocket.y : level.pocket.x
+      const pa = ln.along === 'x' ? level.pocket.x : level.pocket.y
+      if (Math.abs(pc - ln.at) < pr) {
+        const half = Math.sqrt(pr * pr - (pc - ln.at) ** 2)
+        cuts.push([pa - half, pa + half])
+      }
+      for (const [a, b] of subtract(ln.a, ln.b, cuts)) {
+        const len = b - a
+        const geo = ln.along === 'x' ? new THREE.PlaneGeometry(len, sw) : new THREE.PlaneGeometry(sw, len)
+        geo.rotateX(-Math.PI / 2)
+        const m = new THREE.Mesh(geo, fin.stringing)
+        m.position.copy(ln.along === 'x' ? w3((a + b) / 2, ln.at, 0.008) : w3(ln.at, (a + b) / 2, 0.008))
+        m.receiveShadow = true
+        g.add(m)
+      }
+    }
+
+    // A soft contact shadow where the board sits on the table, under the cast shadow.
+    const sw2 = w + RAIL_T * 2 + 2.4
+    const sh2 = h + RAIL_T * 2 + 2.4
+    const contact = new THREE.Mesh(
+      new THREE.PlaneGeometry(sw2, sh2),
+      new THREE.MeshBasicMaterial({ color: 0x2a1d12, alphaMap: contactShadowTexture(sh2 / sw2), transparent: true, opacity: 0.55, depthWrite: false }),
+    )
+    contact.rotation.x = -Math.PI / 2
+    contact.position.copy(w3(w / 2, h / 2, -SLAB_D - 0.05))
+    contact.renderOrder = -1
+    g.add(contact)
+    this.contact = contact
 
     // A small brass maker's plate on the near rail with the piece number.
     g.add(this.makePlaque(level, w))
@@ -394,7 +696,7 @@ export class WorkshopRenderer {
     g.lineWidth = 4
     g.strokeRect(12, 12, 488, 104)
     const label = `No. ${String(level.number).padStart(2, '0')}`
-    g.font = '500 74px "IBM Plex Mono", ui-monospace, monospace'
+    g.font = '600 78px "IBM Plex Mono", ui-monospace, monospace'
     g.textAlign = 'center'
     g.textBaseline = 'middle'
     // Engraved: a light lip below the cut, then the dark cut itself.
@@ -490,6 +792,8 @@ export class WorkshopRenderer {
   setBall(x: number, y: number, drop = 0, scale = 1, visible = true) {
     this.ball.visible = visible && scale > 0.001
     this.ball.position.copy(w3(x, y, BALL_R - drop))
+    this.ballY = BALL_R - drop
+    if (this.introT < 1) this.ball.position.y += this.introLift()
     this.ball.scale.setScalar(Math.max(0.001, scale))
   }
 
@@ -577,6 +881,10 @@ export class WorkshopRenderer {
   }
 
   render() {
+    const now = performance.now()
+    const dt = Math.min(0.05, (now - this.clock) / 1000)
+    this.clock = now
+    this.animate(dt)
     if (this.lost) return
     this.renderer.render(this.scene, this.camera)
   }
