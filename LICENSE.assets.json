@@ -1,0 +1,7 @@
+{
+  "public/icon.svg": { "license": "LicenseRef-Proprietary", "first_party": true, "owner": "HaveAnApp", "source": "Original artwork made for DEAD CENTER" },
+  "public/icon-192.png": { "license": "LicenseRef-Proprietary", "first_party": true, "owner": "HaveAnApp", "source": "Original artwork made for DEAD CENTER" },
+  "public/icon-512.png": { "license": "LicenseRef-Proprietary", "first_party": true, "owner": "HaveAnApp", "source": "Original artwork made for DEAD CENTER" },
+  "public/apple-touch-icon.png": { "license": "LicenseRef-Proprietary", "first_party": true, "owner": "HaveAnApp", "source": "Original artwork made for DEAD CENTER" },
+  "public/og.jpg": { "license": "LicenseRef-Proprietary", "first_party": true, "owner": "HaveAnApp", "source": "Original artwork made for DEAD CENTER" }
+}
