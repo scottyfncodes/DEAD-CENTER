@@ -88,6 +88,18 @@ for (const profile of profiles.filter((p) => !only || p.name === only)) {
     const afterTap = await page.evaluate((i) => window.__deadCenter.save().pieces[i]?.launches ?? 0, id)
     if (afterTap !== 0) fail(`${id}: a 2px tap launched the ball`)
 
+    // A two-finger pinch on the board must not count as a shot either.
+    if (profile.touch && id === ids[0]) {
+      const c = plan.from
+      const tp = (d) => [{ x: c.x - d, y: c.y, id: 1 }, { x: c.x + d, y: c.y, id: 2 }]
+      await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: tp(20) })
+      for (let d = 24; d <= 120; d += 4) await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: tp(d) })
+      await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] })
+      await page.waitForTimeout(200)
+      const afterPinch = await page.evaluate((i) => window.__deadCenter.save().pieces[i]?.launches ?? 0, id)
+      if (afterPinch !== 0) fail(`${id}: a two-finger pinch launched the ball`)
+    }
+
     await drag(page, cdp, profile.touch, plan.from, plan.to)
     const phase = await waitPhase(page, ['sunk', 'settled', 'falling'])
     const rec = await page.evaluate((i) => window.__deadCenter.save().pieces[i], id)

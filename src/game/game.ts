@@ -352,6 +352,8 @@ export class Game {
     const stage = this.els.app
     const blocked = (e: Event) => (e.target as HTMLElement).closest('button, a, .result, .collection')
     stage.addEventListener('pointerdown', (e) => {
+      // A second finger while aiming means a pinch or a fumble, never a shot: drop the aim.
+      if (this.pointerId !== null && e.pointerId !== this.pointerId) return this.cancelAim()
       if (blocked(e) || this.pointerId !== null) return
       if (e.pointerType === 'mouse' && e.button !== 0) return
       this.sound.unlock()
